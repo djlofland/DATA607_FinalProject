@@ -22,15 +22,22 @@ we will focus on heart disease.
 # Part 2 - Data
 ```{r loadData, include=FALSE}
 # load data
+library(jsonlite)
 library(MASS)
 library(glmnet)
 library(ggplot2)
 library(data.table)
-# LCD <- fread("./Data/NCHS_-_Leading_Causes_of_Death__United_States.csv")
-LCD <- fread('https://data.cdc.gov/api/views/bi63-dtpu/rows.csv?accessType=DOWNLOAD&api_foundry=true')
-# CD1 <- fread("./Data/nst-est2018-alldata.csv")
+LCD <- fromJSON('https://data.cdc.gov/resource/bi63-dtpu.json?$limit=50000',
+                flatten = TRUE)
+# fromJSON doesn't allow defining column classes on import
+names(LCD) <- c("Year", "113 Cause Name", "Cause Name" ,"State" ,"Deaths" ,
+                "Age-adjusted Death Rate")
+LCD$Year <- as.integer(LCD$Year)
+LCD$Deaths <- as.integer(LCD$Deaths)
+LCD$`Age-adjusted Death Rate` <- as.double(LCD$`Age-adjusted Death Rate`)
+setDT(LCD)
+
 CD1 <- fread("https://www2.census.gov/programs-surveys/popest/datasets/2010-2018/national/totals/nst-est2018-alldata.csv")
-# CD2 <- fread("./Data/st-est00int-agesex.csv")
 CD2 <- fread("https://www2.census.gov/programs-surveys/popest/datasets/2000-2010/intercensal/state/st-est00int-agesex.csv")
 ```
 
