@@ -1,0 +1,351 @@
+---
+title: "DATA 607 Final Project"
+author: "Team ADMJ"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+  pdf_document: default
+---
+
+# Part 1 - Introduction
+One of the many wonderful aspects of the United States of America is its
+diversity of people and culture. Historically, outside of major port and
+immigration centers, cultures tend to be clustered geographically. This will
+manifest not only in genetic differences, but also in differences in diet and
+activity. A question can now be raised if there is a relationship between
+geographic location, as measured by region, division, or state, and the death
+rate (per 100,000) due to disease, possibly over time? In this research project
+we will focus on heart disease.
+
+# Part 2 - Data
+```{r loadData, include=FALSE}
+# load data
+library(MASS)
+library(glmnet)
+library(ggplot2)
+library(data.table)
+# LCD <- fread("./Data/NCHS_-_Leading_Causes_of_Death__United_States.csv")
+LCD <- fread('https://data.cdc.gov/api/views/bi63-dtpu/rows.csv?accessType=DOWNLOAD&api_foundry=true')
+# CD1 <- fread("./Data/nst-est2018-alldata.csv")
+CD1 <- fread("https://www2.census.gov/programs-surveys/popest/datasets/2010-2018/national/totals/nst-est2018-alldata.csv")
+# CD2 <- fread("./Data/st-est00int-agesex.csv")
+CD2 <- fread("https://www2.census.gov/programs-surveys/popest/datasets/2000-2010/intercensal/state/st-est00int-agesex.csv")
+```
+
+```{r ETL, include=FALSE}
+C1Extract <- CD1[, c("NAME", paste0("POPESTIMATE", 2010:2017))]
+C2Extract <- CD2[SEX == 0L & AGE == 999L,
+                 c("NAME",  paste0("POPESTIMATE", 2000:2009))]
+setkey(C1Extract, "NAME")
+setkey(C2Extract, "NAME")
+Pop <- C2Extract[C1Extract, on = "NAME"]
+setnames(Pop, names(Pop), c("State", 2000:2017))
+
+Population <- melt(Pop, id.vars = "State", variable.name = "Year",
+                   value.name = "Population", variable.factor = FALSE)
+Population$Year <- as.integer(Population$Year)
+
+DT <- Population[LCD[Year > 1999L], on = c("State == State", "Year == Year")]
+SD <- data.table(State = state.name,
+                 Region = state.region,
+                 Division = state.division)
+DT <- SD[DT, on = "State"]
+setkey(DT, Year, State)
+DT[, `DeathRate` := Deaths / Population * 1e5]
+DTHD <- DT[`Cause Name` == "Heart disease" &
+              !(State %chin% c("United States",
+                               "District of Columbia",
+                               "Puerto Rico"))]
+```
+
+## Source
+The investigation will be based on publicly available data on leading causes
+of death comes from the
+[National Center for Health Statistics (NHCS)](https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu).
+Population data will be based on the statewide census data for both
+[2010--2018](https://www.census.gov/data/tables/time-series/demo/popest/2010s-state-total.html)
+and [2000-2009](https://www.census.gov/data/datasets/time-series/demo/popest/intercensal-2000-2010-state.html) from the US Census Bureau.
+
+## ETL
+The dataset from the CDC contains `r dim(LCD)[[1]]` observations comprising data
+from 53 locations---the 50 states, the US as a whole, and the District of
+Columbia---across 11 causes of death---the top 10 together with all---over the
+years `r min(LCD$Year)`--`r max(LCD$Year)`. In order to perform aggregations,
+the data will be joined with US statewide population estimates for those years.
+Focusing on heart disease, there will be 50 location observations (the US should
+be a sum of the rest and DC will be ignored) across the
+`r diff(range(LCD$Year))` years for investigated cases of heart disease.
+
+As the *Age-adjusted death rate* depends on unseen age-cohort populations, there
+is no accurate way to calculate division or regional aggregate rates without
+that information, the pure rate-per-100K people, called *DeathRate* will be used
+as the dependent variable.
+
+The NHCS data will be downloaded via their API as a JSON file and converted to
+a data frame. The census data will be downloaded directly as CSV files and also
+converted to data frames. The population data, especially that for 2000-2010,
+requires tidying. Both data sets need to have the population estimate fields
+extracted from the larger collection of fields.
+
+The earlier data needs more work. It is also split by age group and sex, but
+includes the data for "all" as well. Therefore, knowing that all sexes is
+coded as `0` and all locations as `999`, only rows with those features are
+extracted, but those columns themselves are not.
+
+Once the population fields are extracted, the two census databases are joined to
+each other using the "NAME" field---the geographic location---as the index. At
+this point the data is in "wide" format, and needs to be converted to "long"
+format, especially as geographic divisions and regions need to be added.
+Therefore, the data is melted into long format. This data is now joined to a
+database of US regions and divisions. This becomes the master disease table.
+The heart-diseases specific information is extracted to its own table for ease
+of analysis.
+
+# Part 3 - Exploratory data analysis
+## Summary Statistics
+Summary statistics for the heart-disease data by division and region are below:
+```{r sumStat, echo=FALSE}
+options(digits = 4L)
+
+DTHD[, .(Mean = mean(DeathRate),
+         SD = sd(DeathRate),
+         Min = min(DeathRate),
+         FirstQ = quantile(DeathRate, 0.25),
+         Median = median(DeathRate),
+         ThirdQ = quantile(DeathRate, 0.75),
+         Max = max(DeathRate),
+         IQR = IQR(DeathRate)), by = Region]
+
+DTHD[, .(Mean = mean(DeathRate),
+         SD = sd(DeathRate),
+         Min = min(DeathRate),
+         FirstQ = quantile(DeathRate, 0.25),
+         Median = median(DeathRate),
+         ThirdQ = quantile(DeathRate, 0.75),
+         Max = max(DeathRate),
+         IQR = IQR(DeathRate)), by = Division]
+```
+
+## State View
+A graphical view of the overall kernel-smoothed density and average rate over
+time is shown below. It is faceted by state, colored by division, and for the
+trend chart, the line-type indicates the region.
+```{r, graphs1, fig.height=9.5, fig.width=14, echo=FALSE}
+
+ggplot(DTHD, aes(x = DeathRate)) +
+  stat_density(aes(fill = Division), bw = "nrd0") + facet_wrap(~State)
+
+ggplot(DTHD, aes(x = Year, y = DeathRate)) +
+  geom_path(aes(color = Division, linetype = Region)) + facet_wrap(~State)
+```
+
+## Regional View
+As striking as the displays may be, treating each state as its own factor would
+fall prey to having too many variables and not enough data. Looking at the data
+as a boxplot by Region would be better.
+```{r boxPlot, echo=FALSE}
+ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + geom_boxplot() +
+  coord_flip()
+```
+
+The `West` region appears to be noticeably different from the other regions,
+which provides us with some evidence that geographic differentiation may be
+valuable. A second item of interest is that the `South` seems to have the most
+variation.
+
+The `DeathRate` variable is normalized to rate per 100K lives, so it can be
+analyzed across years. However, it is prudent to look at the trend of the rate
+over time as well.
+```{r rateOverTime, echo=FALSE, message=FALSE}
+ggplot(DTHD, aes(x = Year, y = DeathRate, color = Region, group = Region)) +
+  stat_summary()
+```
+
+The rates all follow the same pattern, decreasing until about 2010 and then
+increasing. As there is no fundamentally different pattern between regions, the
+inference will begin with them aggregated. Note the singularity of the `West`
+region and wider spread of `South` is visible in this chart as well. Lastly,
+while more difficult to see, now that the trends were made apparent, they can
+be followed in the succession of boxplots by year below.
+```{r boxPlots, echo=FALSE, fig.height=9.5, fig.width=14}
+ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + geom_boxplot() +
+  coord_flip() + facet_wrap( ~ Year)
+```
+
+## Divisional View
+A similar exploration of dividing the data by the nine divisions, instead of the
+four regions, follows below.
+
+```{r divisions, echo=FALSE, message=FALSE}
+ggplot(DTHD, aes(x = Division, y = DeathRate, color = Division)) +
+  geom_boxplot() + coord_flip()
+
+ggplot(DTHD, aes(x = Year, y = DeathRate, color = Region, group = Division)) +
+  stat_smooth(se = FALSE, aes(lty = Division))
+```
+
+For the boxplots, the divisions are colored by region for identification
+purposes. For the mean over time, it is easier to digest if the divisions are
+differently colored and the line type reflects the regions. Here, most of the
+divisions follow the same path over time, with the possible exception of the
+`Middle Atlantic` division in the `Northeast` region. Nevertheless, it does not
+immediately prevent us from looking at all years simultaneously. It is also
+apparent that there is enough intra-regional difference that a model using
+divisions would likely perform better than one using solely regions.
+
+# Part 4 - Inference
+## Regions
+As we are not privy to the underlying data from the NHCS, just their aggregated
+data, we are restricted in the models we may build. The first model will be a
+simple linear regression. Approaching the fitting naively would select the
+`Northeast` region as the base. This would be problematic as two of the other
+regions are close to it but `West` is not. The intercept would be affected and
+may make the deviations from base for the other regions less relevant.
+Re-leveling the data so that `West` is considered the baseline will make the
+findings more relevant. The two models below show this difference.
+```{r lm_region, echo=FALSE}
+region1_lm <- lm(DeathRate ~ Region, data = DTHD)
+r1_lm_s <- summary(region1_lm)
+DTHD$Region <- relevel(DTHD$Region, ref = "West")
+region2_lm <- lm(DeathRate ~ Region, data = DTHD)
+r2_lm_s <- summary(region2_lm)
+r1_lm_s
+r2_lm_s
+```
+
+Note that the adjusted \(R^2\) remains the same at `r r1_lm_s$adj.r.squared`,
+but the parameters are more significant in their distance from `West` than from
+`Northeast`.
+
+## Divisions
+The next step is to subdivide on divisions. For the same reason as above, the
+data will be re-leveled to consider the `Pacific` region as the base.
+```{R lm_division, echo=FALSE}
+DTHD$Division <- relevel(DTHD$Division, ref = "Pacific")
+division1_lm <- lm(DeathRate ~ Division, data = DTHD)
+d1_lm_s <- summary(division1_lm)
+d1_lm_s
+```
+
+This is a better model in that the adjusted \(R^2\) has risen to
+`r d1_lm_s$adj.r.squared`, but there is still room for improvement.
+
+## Year
+The next obvious step is to add the year. However, the effect over time was
+clearly non-linear. One option is to add a quadratic term which will capture
+the curvature. Of course, if extended too far, the quadratic term would be
+ludicrous, but it may be valuable for short-term prediction. A second option
+would be to add a cut-off. The simplest would be to pick a year based on the
+empirical evidence, and treat that as a factor. A more sophisticated method
+would put in dummy variables for each year and test the cutoff that way.
+
+```{R lm_division_yr_1, echo=FALSE}
+DTHD$Division <- relevel(DTHD$Division, ref = "Pacific")
+division2_lm <- lm(DeathRate ~ Division + Year + I(Year ^ 2), data = DTHD)
+d2_lm_s <- summary(division2_lm)
+DTHD[, Post2010 := ifelse(Year < 2011, FALSE, TRUE)]
+division3_lm <- lm(DeathRate ~ Division + Post2010, data = DTHD)
+d3_lm_s <- summary(division3_lm)
+d2_lm_s
+d3_lm_s
+```
+
+The model with the quadratic intercept for Year performed better than the one
+with the cutoff as measured by its adjusted \(R^2\) of `r d2_lm_s$adj.r.squared`
+as opposed to `r d3_lm_s$adj.r.squared`. However, note what happened to the
+intercept. Due to the presence of `Year` and `Year ^ 2`, the intercept is now
+three orders of magnitude above the average deaths rates. While this performs
+better locally, a few years out and the quadratic age factor will overwhelm the
+model making it near useless. Of the two, the cutoff version is the safer.
+
+As the simple division-cutoff model does not even explain half of the variance,
+the next step is to use the multiple cut-off model. The `stepAIC` function from
+the `MASS` package will be used to select the "best" model using maximum
+likelihood.
+```{r division_multi, echo=FALSE}
+for (i in seq(min(LCD$Year), max(LCD$Year))) {
+  DTHD[, paste0("Post", i) := Year > i]
+}
+
+div_mult_formula <- reformulate(
+  termlabels = c('Division', paste0("Post", seq(min(LCD$Year) + 1L,
+                                              max(LCD$Year) - 1L))),
+  response = "DeathRate")
+
+div_mult_lm <- lm(div_mult_formula, data = DTHD)
+div_mult_lm_final <- stepAIC(div_mult_lm, scope = list(upper = div_mult_lm,
+                                                       lower = ~ 1),
+                             scale = 0, trace = FALSE)
+dm_lmf_s <- summary(div_mult_lm_final)
+dm_lmf_s
+```
+
+This model is a better model than the single cutoff model above, and nearly
+identical to the quadratic year model when measured by its adjusted \(R^2\) of
+`r dm_lmf_s$adj.r.squared`. It captures the curvature by identifying "elbows" at
+2000, 2003, 2005, and 2008, and the curve upward at 2014.
+
+## Penalized Regression
+At this step, it is time to bring out the heavy machinery of lasso. Lasso, or
+more properly known as penalized regression using L1, is a kind of regression 
+that penalizes multiple parameters with a linear penalty. It's relative, ridge
+regression, uses a quadratic penalty. The benefit of lasso is that by having the
+penalty be sub-quadratic, variable selection occurs as well. With quadratic
+penalties, the variable weights may approach 0 asymptotically, but never hit it.
+
+Lasso regression in R is usually carried out by the `glmnet` package, written by
+the originators of the method, Hastie and Tibshirani. Unfortunately, it doesn't
+use the simple formula method that base R models use, but requires a model
+matrix. Thankfully, the `model.matrix` function in base (`stats`) R can usually
+turn most formula objects into matrices.
+```{r lasso, echo=FALSE}
+MM <- model.matrix(div_mult_lm)
+YY <- DTHD$DeathRate
+fit_lasso <- glmnet(MM, YY, family = 'gaussian', alpha = 1)
+fit_lasso
+plot(fit_lasso)
+```
+
+Unfortunately, this hasn't helped much. The saturated model can explain at most
+`r max(fit_lasso$dev.ratio)` of the variance, and to explain more than one-third
+of the deviance, lasso requires 8 non-zero coefficients. The model which
+explains 0.578 of the deviance has a lambda penalty of 0.6470 and 19 coefficients
+which are:
+```{r lambda0.9920, echo=FALSE}
+coef(fit_lasso, s = 0.6470)
+```
+
+This is very close, but less parsimonious, than the 13-parameter stepAIC model
+above.
+
+One other interesting note is that of the behavior of the `Mountain` division.
+The `glmnet` parameter plot shows that the all the "significant" parameters,
+depending on the penalty, stay as positive or negative when compared to the
+baseline. The very first "significant" parameter is different. It starts
+negative, and becomes even more strongly negative until around 15 parameters, at
+which point it slopes upwards. As the penalty changes and the saturated model
+is approached, the coefficient actually becomes positive.
+
+# Part 5 - Conclusion
+There is a statistically significant relationship between geographic location in
+the United States and the straight death rate per 100K people due to heart
+disease. This would indicate that it would be worthwhile to investigate
+differences in diet, behavior, genetics, and culture in the different US
+divisions to perhaps create more fine-tuned and efficient treatments and
+prevention efforts.
+
+The rate has been changing over time as well. A model comprising merely
+division and time, while clearly significant, cannot explain more than around
+60% of the variance from the general mean. A richer feature set would prove
+valuable.
+
+Lastly, attention should be paid to the `Mountain` division as its behavior in
+the models differs from the other divisions.
+
+# References
+* [NCHS - Leading Causes of Death: United States](https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu)
+* [State Population Totals and Components of Change: 2010--2018](https://www.census.gov/data/tables/time-series/demo/popest/2010s-state-total.html)
+* [Intercensal Estimates of the Resident Population by Single Year of Age and Sex for States and the United States: April 1, 2000 to July 1, 2010](https://www.census.gov/data/datasets/time-series/demo/popest/intercensal-2000-2010-state.html)
+* Friedman, J., Hastie, T. and Tibshirani, R. (2008) *Regularization Paths for Generalized Linear Models via Coordinate Descent*, https://web.stanford.edu/~hastie/Papers/glmnet.pdf
