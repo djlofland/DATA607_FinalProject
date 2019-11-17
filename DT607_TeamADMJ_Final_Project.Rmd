@@ -22,6 +22,9 @@ we will focus on heart disease.
 # Part 2 - Data
 ```{r loadData, include=FALSE}
 # load data
+set.seed(15)
+library(caret)
+library(rpart.plot)
 library(jsonlite)
 library(MASS)
 library(glmnet)
@@ -113,6 +116,7 @@ of analysis.
 # Part 3 - Exploratory data analysis
 ## Summary Statistics
 Summary statistics for the heart-disease data by division and region are below:
+
 ```{r sumStat, echo=FALSE}
 options(digits = 4L)
 
@@ -139,6 +143,7 @@ DTHD[, .(Mean = mean(DeathRate),
 A graphical view of the overall kernel-smoothed density and average rate over
 time is shown below. It is faceted by state, colored by division, and for the
 trend chart, the line-type indicates the region.
+
 ```{r, graphs1, fig.height=9.5, fig.width=14, echo=FALSE}
 
 ggplot(DTHD, aes(x = DeathRate)) +
@@ -165,6 +170,7 @@ variation.
 The `DeathRate` variable is normalized to rate per 100K lives, so it can be
 analyzed across years. However, it is prudent to look at the trend of the rate
 over time as well.
+
 ```{r rateOverTime, echo=FALSE, message=FALSE}
 ggplot(DTHD, aes(x = Year, y = DeathRate, color = Region, group = Region)) +
   stat_summary()
@@ -176,6 +182,7 @@ inference will begin with them aggregated. Note the singularity of the `West`
 region and wider spread of `South` is visible in this chart as well. Lastly,
 while more difficult to see, now that the trends were made apparent, they can
 be followed in the succession of boxplots by year below.
+
 ```{r boxPlots, echo=FALSE, fig.height=9.5, fig.width=14}
 ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + geom_boxplot() +
   coord_flip() + facet_wrap( ~ Year)
@@ -189,29 +196,130 @@ four regions, follows below.
 ggplot(DTHD, aes(x = Division, y = DeathRate, color = Division)) +
   geom_boxplot() + coord_flip()
 
-ggplot(DTHD, aes(x = Year, y = DeathRate, color = Region, group = Division)) +
-  stat_smooth(se = FALSE, aes(lty = Division))
+ggplot(DTHD, aes(x = Year, y = DeathRate, color = Division, group = Division)) +
+  stat_smooth(se = FALSE, aes(lty = Region)) +
+  scale_color_brewer(type = 'qual', palette = 'Set1')
 ```
 
 For the boxplots, the divisions are colored by region for identification
 purposes. For the mean over time, it is easier to digest if the divisions are
 differently colored and the line type reflects the regions. Here, most of the
 divisions follow the same path over time, with the possible exception of the
-`Middle Atlantic` division in the `Northeast` region. Nevertheless, it does not
-immediately prevent us from looking at all years simultaneously. It is also
-apparent that there is enough intra-regional difference that a model using
-divisions would likely perform better than one using solely regions.
+`Eath South Central` division in the `South` region and the `Mountain` division
+of the `West` region. Nevertheless, it does not immediately prevent us from
+looking at all years simultaneously. It is also apparent that there is enough
+inter-regional difference that a model using divisions would likely perform
+better than one using solely regions.
 
 # Part 4 - Inference
-## Regions
+## Linear Models
 As we are not privy to the underlying data from the NHCS, just their aggregated
-data, we are restricted in the models we may build. The first model will be a
-simple linear regression. Approaching the fitting naively would select the
-`Northeast` region as the base. This would be problematic as two of the other
-regions are close to it but `West` is not. The intercept would be affected and
-may make the deviations from base for the other regions less relevant.
-Re-leveling the data so that `West` is considered the baseline will make the
-findings more relevant. The two models below show this difference.
+data, we are restricted in the models we may build. Furthermore, the point of
+this observational study is not to create a model of future deaths for 
+prediction purposes. Rather, it is to demonstrate that the use of the
+geographical variables is significant. There clearly is some relationship
+between time rate, which is also clearly nonlinear. To show the benefit of
+geography, a comparison between a model solely dependent on `Year` and then one
+with added geography will be made. If geography is a valuable indicator, the
+new model should show increased \(R^2\) and reduced error.
+
+### Year
+As seen above, the relationship between `DeathRate` and `Year` is non-linear.
+One option is to add a quadratic term which will capture the curvature. Of
+course, if extended too far, the quadratic term would be ludicrous, but it may
+be valuable for short-term prediction. A second option would be to add a
+cut-off. The simplest would be to pick a year based on the empirical evidence,
+and treat that as a factor. A more sophisticated third method would put in dummy
+variables for each year and test the cutoff that way.
+
+```{r year1, echo=FALSE}
+residPlot <- function(model) {
+  par(mfrow = c(1, 2))
+  hist(model[[3]], freq = FALSE, breaks = "fd", main = "Residual Histogram",
+       xlab = "Residuals")
+  lines(density(model[[3]], kernel = "ep"))
+  qqnorm(model[[3]], main = "Residual Q-Q plot")
+  qqline(model[[3]])
+  par(mfrow = c(1, 1))
+}
+year1_lm <- lm(DeathRate ~ Year, data = DTHD)
+yr1_lm_s <- summary(year1_lm)
+yr1_lm_s
+residPlot(yr1_lm_s)
+```
+
+As expected, looking solely at `Year` a linear model works very poorly. Yes, 
+`Year` is clearly significant based on the F-statistics and t-statistics, but
+the amount of variability explained is very low as measured by the adjusted
+\(R^2\) of `r yr1_lm_s$adj.r.squared`. The residuals are basically normally
+distributed, and the QQ plot, while not perfect, is not egregious.
+
+Next is the quadratic year model:
+
+```{r yearquad, echo=FALSE}
+year2_lm <- lm(DeathRate ~ Year + I(Year ^ 2), data = DTHD)
+yr2_lm_s <- summary(year2_lm)
+yr2_lm_s
+residPlot(yr2_lm_s)
+```
+
+This is a somewhat better model, based on the F-statistics, t-statistics, and
+slightly more variability explained is very low as measured by the adjusted
+\(R^2\) of `r yr2_lm_s$adj.r.squared`. The residual behavior is similar to that
+of the linear model although the QQ plot looks a little worse.
+
+However, note what happened to the intercept. Due to the presence of `Year` and
+`Year ^ 2`, the intercept is now three orders of magnitude above the average
+deaths rates. While this performs better locally, a few years out and the
+quadratic age factor will overwhelm the model making it near useless.
+
+The next step is to replace the year with cutoffs and possibly "spline" the
+results out of linear pieces.
+
+```{r year_multi, echo=FALSE}
+for (i in seq(min(LCD$Year), max(LCD$Year))) {
+  DTHD[, paste0("Post", i) := Year > i]
+}
+
+yr_mult_formula <- reformulate(
+  termlabels = c(paste0("Post", seq(min(LCD$Year) + 1L, max(LCD$Year) - 1L))),
+  response = "DeathRate")
+yr_mult_lm <- lm(yr_mult_formula, data = DTHD)
+yr_mult_lm_final <- stepAIC(yr_mult_lm, direction = "both",
+                            scope = list(upper = yr_mult_lm, lower = ~ 1),
+                             scale = 0, trace = FALSE)
+yr_lmf_s <- summary(yr_mult_lm_final)
+yr_lmf_s
+residPlot(yr_lmf_s)
+```
+
+The `stepAIC` function from the `MASS` package was used to select the "best"
+model using maximum likelihood, starting with the saturated model including all
+years as cutoffs except the first and the last. This model is nearly identical
+to the quadratic year model when measured by its adjusted \(R^2\) of
+`r yr_lmf_s$adj.r.squared`. It captures the curvature by identifying "elbows" at
+2003, 2005, and 2008, and the curve upward at 2014. However, it is getting more
+difficult to say that the residuals exhibit normal behavior. This stands to
+reason as it is becoming quite clear that a linear model does not capture all
+the information buried in the data.
+
+As neither of the "acceptable" models show an adjusted \(R^2\) greater than 
+`r yr_lmf_s$adj.r.squared`, if geography increases this significantly, it
+would indicate that our hypothesis is valid.
+
+### Regions
+The first step would be to add `Regions` to the "best" model using only `Year`.
+Instead, `Region` will be added to the saturated cut-off model and then the
+`stepAIC` procedure will be applied. While not explicitly looking for
+interactions, this may allow for a better selection of years based on region.
+
+Adding regions naively would select the `Northeast` region as the base. This
+would be problematic as two of the other regions are close to it but `West` is
+not. The intercept would be affected and may make the deviations from base for
+the other regions less relevant. Re-leveling the data so that `West` is
+considered the baseline will make the findings more relevant. The two simple
+models using region only below show this difference.
+
 ```{r lm_region, echo=FALSE}
 region1_lm <- lm(DeathRate ~ Region, data = DTHD)
 r1_lm_s <- summary(region1_lm)
@@ -226,114 +334,137 @@ Note that the adjusted \(R^2\) remains the same at `r r1_lm_s$adj.r.squared`,
 but the parameters are more significant in their distance from `West` than from
 `Northeast`.
 
-## Divisions
+Now for the addition of `Region` to `Year`:
+
+```{r regionyr1, echo=FALSE}
+rg_mult_formula <- reformulate(
+  termlabels = c('Region', paste0("Post", seq(min(LCD$Year) + 1L,
+                                              max(LCD$Year) - 1L))),
+  response = "DeathRate")
+rg_mult_lm <- lm(rg_mult_formula, data = DTHD)
+rg_mult_lm_final <- stepAIC(rg_mult_lm, direction = "both",
+                            scope = list(upper = rg_mult_lm, lower = ~ 1),
+                             scale = 0, trace = FALSE)
+rg_lmf_s <- summary(rg_mult_lm_final)
+rg_lmf_s
+residPlot(rg_lmf_s)
+```
+
+The model is clearly significant as can be seen from the F and t statistics.
+There is also a marked improvement in the adjusted \(R^2\) of the model at
+`r rg_lmf_s$adj.r.squared`. Moreover, the residuals look better than the
+year-only model as does the QQ-plot.
+
+### Divisions
 The next step is to subdivide on divisions. For the same reason as above, the
 data will be re-leveled to consider the `Pacific` region as the base.
+
 ```{R lm_division, echo=FALSE}
 DTHD$Division <- relevel(DTHD$Division, ref = "Pacific")
-division1_lm <- lm(DeathRate ~ Division, data = DTHD)
-d1_lm_s <- summary(division1_lm)
-d1_lm_s
-```
-
-This is a better model in that the adjusted \(R^2\) has risen to
-`r d1_lm_s$adj.r.squared`, but there is still room for improvement.
-
-## Year
-The next obvious step is to add the year. However, the effect over time was
-clearly non-linear. One option is to add a quadratic term which will capture
-the curvature. Of course, if extended too far, the quadratic term would be
-ludicrous, but it may be valuable for short-term prediction. A second option
-would be to add a cut-off. The simplest would be to pick a year based on the
-empirical evidence, and treat that as a factor. A more sophisticated method
-would put in dummy variables for each year and test the cutoff that way.
-
-```{R lm_division_yr_1, echo=FALSE}
-DTHD$Division <- relevel(DTHD$Division, ref = "Pacific")
-division2_lm <- lm(DeathRate ~ Division + Year + I(Year ^ 2), data = DTHD)
-d2_lm_s <- summary(division2_lm)
-DTHD[, Post2010 := ifelse(Year < 2011, FALSE, TRUE)]
-division3_lm <- lm(DeathRate ~ Division + Post2010, data = DTHD)
-d3_lm_s <- summary(division3_lm)
-d2_lm_s
-d3_lm_s
-```
-
-The model with the quadratic intercept for Year performed better than the one
-with the cutoff as measured by its adjusted \(R^2\) of `r d2_lm_s$adj.r.squared`
-as opposed to `r d3_lm_s$adj.r.squared`. However, note what happened to the
-intercept. Due to the presence of `Year` and `Year ^ 2`, the intercept is now
-three orders of magnitude above the average deaths rates. While this performs
-better locally, a few years out and the quadratic age factor will overwhelm the
-model making it near useless. Of the two, the cutoff version is the safer.
-
-As the simple division-cutoff model does not even explain half of the variance,
-the next step is to use the multiple cut-off model. The `stepAIC` function from
-the `MASS` package will be used to select the "best" model using maximum
-likelihood.
-```{r division_multi, echo=FALSE}
-for (i in seq(min(LCD$Year), max(LCD$Year))) {
-  DTHD[, paste0("Post", i) := Year > i]
-}
-
 div_mult_formula <- reformulate(
   termlabels = c('Division', paste0("Post", seq(min(LCD$Year) + 1L,
                                               max(LCD$Year) - 1L))),
   response = "DeathRate")
-
 div_mult_lm <- lm(div_mult_formula, data = DTHD)
-div_mult_lm_final <- stepAIC(div_mult_lm, scope = list(upper = div_mult_lm,
-                                                       lower = ~ 1),
+div_mult_lm_final <- stepAIC(div_mult_lm, direction = "both",
+                            scope = list(upper = div_mult_lm, lower = ~ 1),
                              scale = 0, trace = FALSE)
-dm_lmf_s <- summary(div_mult_lm_final)
-dm_lmf_s
+div_lmf_s <- summary(div_mult_lm_final)
+div_lmf_s
+residPlot(div_lmf_s)
 ```
 
-This model is a better model than the single cutoff model above, and nearly
-identical to the quadratic year model when measured by its adjusted \(R^2\) of
-`r dm_lmf_s$adj.r.squared`. It captures the curvature by identifying "elbows" at
-2000, 2003, 2005, and 2008, and the curve upward at 2014.
+This is an even better model in that the adjusted \(R^2\) has risen to
+`r div_lmf_s$adj.r.squared`, which is more than half of the variation explained.
+However, the residuals show some lumpiness in the lower tail, which is more
+clearly seen in the QQ-plot. While not proof positive of a problem it is
+indicative of the model being sub-optimal. Which is once again to be expected.
+The object here is not to create the best predictive model of heart
+disease-related deaths, but to indicate if geography plays a role.
 
-## Penalized Regression
-At this step, it is time to bring out the heavy machinery of lasso. Lasso, or
-more properly known as penalized regression using L1, is a kind of regression 
-that penalizes multiple parameters with a linear penalty. It's relative, ridge
-regression, uses a quadratic penalty. The benefit of lasso is that by having the
-penalty be sub-quadratic, variable selection occurs as well. With quadratic
-penalties, the variable weights may approach 0 asymptotically, but never hit it.
+### Penalized Regression
+When dealing with many possible variables, as these annual dummy variables are,
+one can use the machinery of lasso. Lasso, or more properly known as penalized
+regression using L1, is a kind of regression that penalizes multiple parameters
+with a linear penalty. Its relative, ridge regression, uses a quadratic penalty.
+The benefit of lasso is that by having the penalty be sub-quadratic, variable
+selection occurs as well. With quadratic penalties, the variable weights may
+approach 0 asymptotically, but never hit it.
 
 Lasso regression in R is usually carried out by the `glmnet` package, written by
-the originators of the method, Hastie and Tibshirani. Unfortunately, it doesn't
-use the simple formula method that base R models use, but requires a model
-matrix. Thankfully, the `model.matrix` function in base (`stats`) R can usually
-turn most formula objects into matrices.
-```{r lasso, echo=FALSE}
+the originators of the method, Hastie and Tibshirani. It doesn't use the simple
+formula method that base R models use, but requires a model matrix. The
+`model.matrix` function in base (`stats`) R can usually turn most formula
+objects into matrices.
+
+```{r lasso, echo=FALSE, fig.width=10, fig.height=8}
 MM <- model.matrix(div_mult_lm)
 YY <- DTHD$DeathRate
 fit_lasso <- glmnet(MM, YY, family = 'gaussian', alpha = 1)
 fit_lasso
-plot(fit_lasso)
+r2_bestStep <- which(abs(fit_lasso$dev.ratio - div_lmf_s$adj.r.squared) ==
+                    min(abs(fit_lasso$dev.ratio - div_lmf_s$adj.r.squared)))
+plot(fit_lasso, label = TRUE)
 ```
 
 Unfortunately, this hasn't helped much. The saturated model can explain at most
 `r max(fit_lasso$dev.ratio)` of the variance, and to explain more than one-third
 of the deviance, lasso requires 8 non-zero coefficients. The model which
-explains 0.578 of the deviance has a lambda penalty of 0.6470 and 19 coefficients
-which are:
-```{r lambda0.9920, echo=FALSE}
-coef(fit_lasso, s = 0.6470)
+explains about `r div_lmf_s$adj.r.squared` of the deviance---the value from the
+best regional and year-cutoff model---is model number `r r2_bestStep`, which has
+a lambda penalty of `r fit_lasso$lambda[[r2_bestStep]]` and
+`r fit_lasso$df[[r2_bestStep]]` coefficients which are:
+
+```{r lambdacoef, echo=FALSE}
+coef(fit_lasso, s = fit_lasso$lambda[[r2_bestStep]])
 ```
 
 This is very close, but less parsimonious, than the 13-parameter stepAIC model
 above.
 
-One other interesting note is that of the behavior of the `Mountain` division.
+One other interesting note is that of the behavior of the `Mountain` division,
+which as the ninth variable in the sequence above is depicted by the number 9.
 The `glmnet` parameter plot shows that the all the "significant" parameters,
 depending on the penalty, stay as positive or negative when compared to the
-baseline. The very first "significant" parameter is different. It starts
-negative, and becomes even more strongly negative until around 15 parameters, at
-which point it slopes upwards. As the penalty changes and the saturated model
-is approached, the coefficient actually becomes positive.
+baseline. The very first "significant" parameter---number 9---is different. It
+starts negative, and becomes even more strongly negative until around 15
+parameters, at which point it slopes upwards. As the penalty changes and the
+saturated model is approached, the coefficient actually becomes positive.
+
+## Tree-based method
+It is clear that the true relationship between `DeathRate` and the geographies,
+even when accounting for the year, is non-linear. The linear model has, however,
+shown that the geographies are relevant. We can show this with a tree-based
+model as well. Moreover, a tree-based model will give us an idea of the relative
+importance of a variables by its distance from the root. As we are not trying to
+create a new predictive model but to identify characteristics of the observed
+data, **all** the data will be used for training. Lastly, since a tree-based
+model answers a yes-no question at each node, there is no need to use the dummy
+variables indicating pre- or post- a given year---the `Year` variable may be
+trained on directly.
+
+```{r tree, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+dt_m <- train(DeathRate ~ Division + Year, data = DTHD, tuneLength = 19L,
+              method = 'rpart2')
+rpart.plot(dt_m$finalModel, type = 1L)
+```
+
+As surmised from the penalized regression result, the `Mountain` division
+behaves differently enough to be the first choice in the selected model. Then
+**2006** is selected as the key differentiator---not 2010 as was considered
+above. Perhaps that is when the downward trend ended and the average between 
+2006 and 2017 is basically flat. Following is `East South Central` and
+`Middle Atlantic`, the former of which was also noticed in the exploratory
+section. Lastly, it is interesting to note that prior to 2006 (the right side of
+the tree) the `East South Central` and `Middle Atlantic` divisions are different
+enough to split off directly. All other divisions depend on whether or not it
+is after 2003. Prior to 2003 they all end in the same bucket. This is reinforced
+by the stepAIC model which also found `Post2003` and `Post2005` to be highly
+significant. This is also reinforced by the Lasso model above. Looking at the
+variable importance plots, the most important was variable 9, `Mountain`,
+followed by variables 13, 15, and 5 which are `Post2003`, `Post2005`, and
+`East South Central` respectively. Not in the exact same order as the tree,
+but close enough for adding confidence.
 
 # Part 5 - Conclusion
 There is a statistically significant relationship between geographic location in
@@ -348,11 +479,12 @@ division and time, while clearly significant, cannot explain more than around
 60% of the variance from the general mean. A richer feature set would prove
 valuable.
 
-Lastly, attention should be paid to the `Mountain` division as its behavior in
-the models differs from the other divisions.
+Lastly, attention should be paid to the `Mountain` and `East South Central`
+divisions as their behavior in the models differs from the other divisions.
 
 # References
 * [NCHS - Leading Causes of Death: United States](https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu)
 * [State Population Totals and Components of Change: 2010--2018](https://www.census.gov/data/tables/time-series/demo/popest/2010s-state-total.html)
 * [Intercensal Estimates of the Resident Population by Single Year of Age and Sex for States and the United States: April 1, 2000 to July 1, 2010](https://www.census.gov/data/datasets/time-series/demo/popest/intercensal-2000-2010-state.html)
 * Friedman, J., Hastie, T. and Tibshirani, R. (2008) *Regularization Paths for Generalized Linear Models via Coordinate Descent*, https://web.stanford.edu/~hastie/Papers/glmnet.pdf
+* Breiman L., Friedman J. H., Olshen R. A., and Stone, C. J. (1984) *Classification and Regression Trees*. Wadsworth.
