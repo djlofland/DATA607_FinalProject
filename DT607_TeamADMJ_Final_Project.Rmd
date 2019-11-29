@@ -9,20 +9,9 @@ output:
   pdf_document: default
 ---
 
-# Part 1 - Introduction
-One of the many wonderful aspects of the United States of America is its
-diversity of people and culture. Historically, outside of major port and
-immigration centers, cultures tend to be clustered geographically. This will
-manifest not only in genetic differences, but also in differences in diet and
-activity. A question can now be raised if there is a relationship between
-geographic location, as measured by region, division, or state, and the death
-rate (per 100,000) due to disease, possibly over time? In this research project
-we will focus on heart disease.
+```{r setup, message=FALSE, collapse=TRUE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse=TRUE, message=FALSE)
 
-# Part 2 - Data
-
-### Load raw data
-```{r loadData, , message=FALSE}
 #  --- LOAD LIBRARIES ---
 set.seed(15)
 library(caret)
@@ -69,6 +58,23 @@ load_cache_file <- function(fn, url, type) {
   
   return(data)
 }
+```
+
+
+# Part 1 - Introduction
+One of the many wonderful aspects of the United States of America is its
+diversity of people and culture. Historically, outside of major port and
+immigration centers, cultures tend to be clustered geographically. This will
+manifest not only in genetic differences, but also in differences in diet and
+activity. A question can now be raised if there is a relationship between
+geographic location, as measured by region, division, or state, and the death
+rate (per 100,000) due to disease, possibly over time? In this research project
+we will focus on heart disease.
+
+# Part 2 - Data
+
+### Load raw data
+```{r loadData}
 
 # --- Load LCD Data ---
 # Note: we keep an original copy of the data in case we need to reference pre-modified data
@@ -214,7 +220,7 @@ A graphical view of the overall kernel-smoothed density and average rate over
 time is shown below. It is faceted by state, colored by division, and for the
 trend chart, the line-type indicates the region.
 
-```{r, graphs1, fig.height=9.5, fig.width=14}
+```{r graphs1, fig.height=9.5, fig.width=14}
 
 # We need to merge/join state data to build ggplot maps
 us_states$region <- str_to_title(us_states$region)
@@ -223,7 +229,7 @@ DTHD_states <- left_join(us_states, DTHD, by =c("region"="State"))
 # Display Deathrate on US Map
 ggplot(data = DTHD_states,
        mapping = aes(x = long, y = lat, group = group, fill = DeathRate)) +
-  geom_polygon(color = "gray90", size = 0.1) +
+  geom_polygon(color = "gray30", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
   scale_fill_gradient(low = "white", high = "#CB454A") +
   labs(title = "Death Rates") + 
@@ -233,14 +239,13 @@ ggplot(data = DTHD_states,
 # Display Deathrates by Year on US Map
 ggplot(data = subset(DTHD_states, Year > 1999),
        mapping = aes(x = long, y = lat, group = group, fill = DeathRate)) +
-  geom_polygon(color = "gray90", size = 0.05) +
+  geom_polygon(color = "gray30", size = 0.05) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
   scale_fill_gradient(low = "white", high = "#CB454A") +
-  theme_map() + facet_wrap(~ Year, ncol = 3) +
-    theme(legend.position = "bottom",
-          strip.background = element_blank()) +
-    labs(fill = "Death rate per 100,000 population ",
-         title = "Heart Related Deaths by State, 2000-2014")  
+  theme_map() + 
+  facet_wrap(~ Year, ncol = 4) +
+    theme(legend.position = "bottom", strip.background = element_blank()) +
+    labs(fill = "Death rate per 100,000 population ", title = "Heart Related Deaths by State, 2000-2014")  
 
 # Display Deathrate density plots by state
 ggplot(DTHD, aes(x = DeathRate)) +
@@ -255,17 +260,34 @@ ggplot(DTHD, aes(x = Year, y = DeathRate)) +
 As striking as the displays may be, treating each state as its own factor would
 fall prey to having too many variables and not enough data. Looking at the data
 as a boxplot by Region would be better.
+
+
 ```{r boxPlot}
 
+# Add a column with Region mean DeathRate
+DTHD_states <- DTHD_states %>% 
+  group_by(Region) %>% 
+  mutate(RegionMean = mean(DeathRate, na.rm=TRUE))
+
 # Display Regions on US Map
-ggplot(data = DTHD_states,
-       mapping = aes(x = long, y = lat, group = group, fill = Region)) +
-  geom_polygon(color = "gray90", size = 0.1) +
+ggplot(data = DTHD_states, mapping = aes(x = long, y = lat, group = group, fill = Region)) +
+  geom_polygon(color = "gray30", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
   labs(title = "Regions") + 
   theme_map() + 
   labs(fill = "Regions")
 
+# Display Mean Deathrate for each Region on US Map
+ggplot(data = DTHD_states,
+       mapping = aes(x = long, y = lat, group = group, fill = RegionMean)) +
+  geom_polygon(color = "gray30", size = 0.1) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+  scale_fill_gradient(low = "#E2B8B2", high = "#CB454A") +
+  labs(title = "Regional Death Rates") + 
+  theme_map() + 
+  labs(fill = "Regional Death Rate")
+
+# Boxplot of DeathRat by Region
 ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + geom_boxplot() +
   coord_flip()
 ```
@@ -279,7 +301,7 @@ The `DeathRate` variable is normalized to rate per 100K lives, so it can be
 analyzed across years. However, it is prudent to look at the trend of the rate
 over time as well.
 
-```{r rateOverTime, message=FALSE}
+```{r rateOverTime}
 ggplot(DTHD, aes(x = Year, y = DeathRate, color = Region, group = Region)) +
   stat_summary()
 ```
@@ -300,7 +322,12 @@ ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + geom_boxplot() +
 A similar exploration of dividing the data by the nine divisions, instead of the
 four regions, follows below.
 
-```{r divisions, message=FALSE}
+```{r divisions}
+
+# Add a column with Division mean DeathRate
+DTHD_states <- DTHD_states %>% 
+  group_by(Division) %>% 
+  mutate(DivisionMean = mean(DeathRate, na.rm=TRUE))
 
 # Display Regions on US Map
 ggplot(data = DTHD_states,
@@ -311,10 +338,21 @@ ggplot(data = DTHD_states,
   theme_map() + 
   labs(fill = "Regions")
 
+# Display Mean Deathrate for each Division on US Map
+ggplot(data = DTHD_states,
+       mapping = aes(x = long, y = lat, group = group, fill = DivisionMean)) +
+  geom_polygon(color = "gray30", size = 0.1) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+  scale_fill_gradient(low = "#E2B8B2", high = "#CB454A") +
+  labs(title = "Regional Death Rates") + 
+  theme_map() + 
+  labs(fill = "Regional Death Rate")
 
+# Boxplot 
 ggplot(DTHD, aes(x = Division, y = DeathRate, color = Division)) +
   geom_boxplot() + coord_flip()
 
+# Density plot
 ggplot(DTHD, aes(x = Year, y = DeathRate, color = Division, group = Division)) +
   stat_smooth(se = FALSE, aes(lty = Region)) +
   scale_color_brewer(type = 'qual', palette = 'Set1')
@@ -562,7 +600,7 @@ model answers a yes-no question at each node, there is no need to use the dummy
 variables indicating pre- or post- a given year---the `Year` variable may be
 trained on directly.
 
-```{r tree, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+```{r tree, fig.width=10, fig.height=8}
 dt_m <- train(DeathRate ~ Division + Year, data = DTHD, tuneLength = 19L,
               method = 'rpart2')
 rpart.plot(dt_m$finalModel, type = 1L)
