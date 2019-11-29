@@ -20,36 +20,102 @@ rate (per 100,000) due to disease, possibly over time? In this research project
 we will focus on heart disease.
 
 # Part 2 - Data
-```{r loadData, include=FALSE}
-# load data
+
+### Load raw data
+```{r loadData, , message=FALSE}
+#  --- LOAD LIBRARIES ---
 set.seed(15)
 library(caret)
 library(rpart.plot)
 library(jsonlite)
 library(MASS)
 library(glmnet)
-library(ggplot2)
 library(data.table)
-LCD <- fromJSON('https://data.cdc.gov/resource/bi63-dtpu.json?$limit=50000',
-                flatten = TRUE)
+library(tidyverse)
+library(ggthemes)
+library(viridis)
+
+# Wil be used for US Maps
+library(maps)
+us_states <- map_data("state")
+
+#' Attempt to load cached data falling back to remote URL loading
+#'
+#' To save redownloading data from the internet every time, this 
+#' function will cache URL data the first time and for all future
+#' references, it will us the locally cached file rather than
+#' redownloading from the internet.
+#' @param fn The local cache filename (character)
+#' @param url The remote URL to load the data (character)
+#' @param type The type of data (affects which loading fuction). Valid: csv, json (character)
+#' @examples
+#' myData <- load_cache_file('./data/myfile.csv', 'http://someurl.com/somefile.csv')
+#' @return The desired data as a data.frame
+#' @export
+load_cache_file <- function(fn, url, type) {
+  # TODO - Add error chacking of parameters (fn, url and type)
+  
+  if(!(file.exists(fn))) {
+    if(type == 'csv') {
+      data <- fread(url) 
+    } else if (type == 'json') {
+      data <- fromJSON(url, flatten = TRUE)
+    }
+
+    write.csv(data, file = fn, row.names = FALSE)
+  } else {
+    data <- fread(fn)
+  }
+  
+  return(data)
+}
+
+# --- Load LCD Data ---
+# Note: we keep an original copy of the data in case we need to reference pre-modified data
+LCD_fn <- './data/lcd.csv'
+LCD_url <- 'https://data.cdc.gov/resource/bi63-dtpu.json?$limit=50000'
+LCD_orig <- load_cache_file(LCD_fn, LCD_url, 'json')
+
+LCD <- LCD_orig
+
+# --- Load 2018 All data ---
+CD1_fn <- './data/nst-est2018-alldata.csv'
+CD1_url <- "https://www2.census.gov/programs-surveys/popest/datasets/2010-2018/national/totals/nst-est2018-alldata.csv"
+CD1_orig <- load_cache_file(CD1_fn, CD1_url, 'csv')
+
+CD1 <- CD1_orig
+
+# --- Load 2010 State Age/Sex Data ---
+CD2_fn <- './data/st-est00int-agesex.csv'
+CD2_url <- "https://www2.census.gov/programs-surveys/popest/datasets/2000-2010/intercensal/state/st-est00int-agesex.csv"
+CD2_orig <- load_cache_file(CD2_fn, CD2_url, 'csv')
+
+CD2 <- CD2_orig
+```
+
+### Prepare Dataframes
+
+```{r ETL}
+# --- CLEAN LCD DATA ---
 # fromJSON doesn't allow defining column classes on import
 names(LCD) <- c("Year", "113 Cause Name", "Cause Name" ,"State" ,"Deaths" ,
                 "Age-adjusted Death Rate")
+
 LCD$Year <- as.integer(LCD$Year)
 LCD$Deaths <- as.integer(LCD$Deaths)
 LCD$`Age-adjusted Death Rate` <- as.double(LCD$`Age-adjusted Death Rate`)
 setDT(LCD)
 
-CD1 <- fread("https://www2.census.gov/programs-surveys/popest/datasets/2010-2018/national/totals/nst-est2018-alldata.csv")
-CD2 <- fread("https://www2.census.gov/programs-surveys/popest/datasets/2000-2010/intercensal/state/st-est00int-agesex.csv")
-```
-
-```{r ETL, include=FALSE}
+# --- EXTRACT CD1 DATA ---
 C1Extract <- CD1[, c("NAME", paste0("POPESTIMATE", 2010:2017))]
+setkey(C1Extract, "NAME")
+
+# --- EXTRACT CD2 DATA ---
 C2Extract <- CD2[SEX == 0L & AGE == 999L,
                  c("NAME",  paste0("POPESTIMATE", 2000:2009))]
-setkey(C1Extract, "NAME")
 setkey(C2Extract, "NAME")
+
+# --- CREATE POPULATION DATAFRAME ---
 Pop <- C2Extract[C1Extract, on = "NAME"]
 setnames(Pop, names(Pop), c("State", 2000:2017))
 
@@ -57,17 +123,21 @@ Population <- melt(Pop, id.vars = "State", variable.name = "Year",
                    value.name = "Population", variable.factor = FALSE)
 Population$Year <- as.integer(Population$Year)
 
+# --- PREPARE HEART DISEASE DATAFRAME ---
 DT <- Population[LCD[Year > 1999L], on = c("State == State", "Year == Year")]
 SD <- data.table(State = state.name,
                  Region = state.region,
                  Division = state.division)
 DT <- SD[DT, on = "State"]
 setkey(DT, Year, State)
+
 DT[, `DeathRate` := Deaths / Population * 1e5]
 DTHD <- DT[`Cause Name` == "Heart disease" &
               !(State %chin% c("United States",
                                "District of Columbia",
                                "Puerto Rico"))]
+
+head(DTHD)
 ```
 
 ## Source
@@ -117,7 +187,7 @@ of analysis.
 ## Summary Statistics
 Summary statistics for the heart-disease data by division and region are below:
 
-```{r sumStat, echo=FALSE}
+```{r sumStat}
 options(digits = 4L)
 
 DTHD[, .(Mean = mean(DeathRate),
@@ -144,11 +214,39 @@ A graphical view of the overall kernel-smoothed density and average rate over
 time is shown below. It is faceted by state, colored by division, and for the
 trend chart, the line-type indicates the region.
 
-```{r, graphs1, fig.height=9.5, fig.width=14, echo=FALSE}
+```{r, graphs1, fig.height=9.5, fig.width=14}
 
+# We need to merge/join state data to build ggplot maps
+us_states$region <- str_to_title(us_states$region)
+DTHD_states <- left_join(us_states, DTHD, by =c("region"="State"))
+
+# Display Deathrate on US Map
+ggplot(data = DTHD_states,
+       mapping = aes(x = long, y = lat, group = group, fill = DeathRate)) +
+  geom_polygon(color = "gray90", size = 0.1) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+  scale_fill_gradient(low = "white", high = "#CB454A") +
+  labs(title = "Death Rates") + 
+  theme_map() + 
+  labs(fill = "Death Rate")
+
+# Display Deathrates by Year on US Map
+ggplot(data = subset(DTHD_states, Year > 1999),
+       mapping = aes(x = long, y = lat, group = group, fill = DeathRate)) +
+  geom_polygon(color = "gray90", size = 0.05) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+  scale_fill_gradient(low = "white", high = "#CB454A") +
+  theme_map() + facet_wrap(~ Year, ncol = 3) +
+    theme(legend.position = "bottom",
+          strip.background = element_blank()) +
+    labs(fill = "Death rate per 100,000 population ",
+         title = "Heart Related Deaths by State, 2000-2014")  
+
+# Display Deathrate density plots by state
 ggplot(DTHD, aes(x = DeathRate)) +
   stat_density(aes(fill = Division), bw = "nrd0") + facet_wrap(~State)
 
+# Display Deathrate density plots by Division of US
 ggplot(DTHD, aes(x = Year, y = DeathRate)) +
   geom_path(aes(color = Division, linetype = Region)) + facet_wrap(~State)
 ```
@@ -157,7 +255,17 @@ ggplot(DTHD, aes(x = Year, y = DeathRate)) +
 As striking as the displays may be, treating each state as its own factor would
 fall prey to having too many variables and not enough data. Looking at the data
 as a boxplot by Region would be better.
-```{r boxPlot, echo=FALSE}
+```{r boxPlot}
+
+# Display Regions on US Map
+ggplot(data = DTHD_states,
+       mapping = aes(x = long, y = lat, group = group, fill = Region)) +
+  geom_polygon(color = "gray90", size = 0.1) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+  labs(title = "Regions") + 
+  theme_map() + 
+  labs(fill = "Regions")
+
 ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + geom_boxplot() +
   coord_flip()
 ```
@@ -171,7 +279,7 @@ The `DeathRate` variable is normalized to rate per 100K lives, so it can be
 analyzed across years. However, it is prudent to look at the trend of the rate
 over time as well.
 
-```{r rateOverTime, echo=FALSE, message=FALSE}
+```{r rateOverTime, message=FALSE}
 ggplot(DTHD, aes(x = Year, y = DeathRate, color = Region, group = Region)) +
   stat_summary()
 ```
@@ -183,7 +291,7 @@ region and wider spread of `South` is visible in this chart as well. Lastly,
 while more difficult to see, now that the trends were made apparent, they can
 be followed in the succession of boxplots by year below.
 
-```{r boxPlots, echo=FALSE, fig.height=9.5, fig.width=14}
+```{r boxPlots, fig.height=9.5, fig.width=14}
 ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + geom_boxplot() +
   coord_flip() + facet_wrap( ~ Year)
 ```
@@ -192,7 +300,18 @@ ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + geom_boxplot() +
 A similar exploration of dividing the data by the nine divisions, instead of the
 four regions, follows below.
 
-```{r divisions, echo=FALSE, message=FALSE}
+```{r divisions, message=FALSE}
+
+# Display Regions on US Map
+ggplot(data = DTHD_states,
+       mapping = aes(x = long, y = lat, group = group, fill = Division)) +
+  geom_polygon(color = "gray90", size = 0.1) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+  labs(title = "Regions") + 
+  theme_map() + 
+  labs(fill = "Regions")
+
+
 ggplot(DTHD, aes(x = Division, y = DeathRate, color = Division)) +
   geom_boxplot() + coord_flip()
 
@@ -232,7 +351,7 @@ cut-off. The simplest would be to pick a year based on the empirical evidence,
 and treat that as a factor. A more sophisticated third method would put in dummy
 variables for each year and test the cutoff that way.
 
-```{r year1, echo=FALSE}
+```{r year1}
 residPlot <- function(model) {
   par(mfrow = c(1, 2))
   hist(model[[3]], freq = FALSE, breaks = "fd", main = "Residual Histogram",
@@ -256,7 +375,7 @@ distributed, and the QQ plot, while not perfect, is not egregious.
 
 Next is the quadratic year model:
 
-```{r yearquad, echo=FALSE}
+```{r yearquad}
 year2_lm <- lm(DeathRate ~ Year + I(Year ^ 2), data = DTHD)
 yr2_lm_s <- summary(year2_lm)
 yr2_lm_s
@@ -276,7 +395,7 @@ quadratic age factor will overwhelm the model making it near useless.
 The next step is to replace the year with cutoffs and possibly "spline" the
 results out of linear pieces.
 
-```{r year_multi, echo=FALSE}
+```{r year_multi}
 for (i in seq(min(LCD$Year), max(LCD$Year))) {
   DTHD[, paste0("Post", i) := Year > i]
 }
@@ -320,7 +439,7 @@ the other regions less relevant. Re-leveling the data so that `West` is
 considered the baseline will make the findings more relevant. The two simple
 models using region only below show this difference.
 
-```{r lm_region, echo=FALSE}
+```{r lm_region}
 region1_lm <- lm(DeathRate ~ Region, data = DTHD)
 r1_lm_s <- summary(region1_lm)
 DTHD$Region <- relevel(DTHD$Region, ref = "West")
@@ -336,7 +455,7 @@ but the parameters are more significant in their distance from `West` than from
 
 Now for the addition of `Region` to `Year`:
 
-```{r regionyr1, echo=FALSE}
+```{r regionyr1}
 rg_mult_formula <- reformulate(
   termlabels = c('Region', paste0("Post", seq(min(LCD$Year) + 1L,
                                               max(LCD$Year) - 1L))),
@@ -359,7 +478,7 @@ year-only model as does the QQ-plot.
 The next step is to subdivide on divisions. For the same reason as above, the
 data will be re-leveled to consider the `Pacific` region as the base.
 
-```{R lm_division, echo=FALSE}
+```{R lm_division}
 DTHD$Division <- relevel(DTHD$Division, ref = "Pacific")
 div_mult_formula <- reformulate(
   termlabels = c('Division', paste0("Post", seq(min(LCD$Year) + 1L,
@@ -397,7 +516,7 @@ formula method that base R models use, but requires a model matrix. The
 `model.matrix` function in base (`stats`) R can usually turn most formula
 objects into matrices.
 
-```{r lasso, echo=FALSE, fig.width=10, fig.height=8}
+```{r lasso, fig.width=10, fig.height=8}
 MM <- model.matrix(div_mult_lm)
 YY <- DTHD$DeathRate
 fit_lasso <- glmnet(MM, YY, family = 'gaussian', alpha = 1)
@@ -415,7 +534,7 @@ best regional and year-cutoff model---is model number `r r2_bestStep`, which has
 a lambda penalty of `r fit_lasso$lambda[[r2_bestStep]]` and
 `r fit_lasso$df[[r2_bestStep]]` coefficients which are:
 
-```{r lambdacoef, echo=FALSE}
+```{r lambdacoef}
 coef(fit_lasso, s = fit_lasso$lambda[[r2_bestStep]])
 ```
 
@@ -443,7 +562,7 @@ model answers a yes-no question at each node, there is no need to use the dummy
 variables indicating pre- or post- a given year---the `Year` variable may be
 trained on directly.
 
-```{r tree, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+```{r tree, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
 dt_m <- train(DeathRate ~ Division + Year, data = DTHD, tuneLength = 19L,
               method = 'rpart2')
 rpart.plot(dt_m$finalModel, type = 1L)
