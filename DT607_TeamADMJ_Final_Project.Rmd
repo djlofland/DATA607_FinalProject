@@ -10,7 +10,7 @@ output:
 ---
 
 ```{r setup, message=FALSE, collapse=TRUE, warning=FALSE}
-knitr::opts_chunk$set(echo = TRUE, collapse=TRUE, message=FALSE)
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, message = FALSE)
 
 #  --- LOAD LIBRARIES ---
 set.seed(15)
@@ -46,8 +46,8 @@ us_states <- map_data("state")
 load_cache_file <- function(fn, url, type) {
   # TODO - Add error chacking of parameters (fn, url and type)
   
-  if(!(file.exists(fn))) {
-    if(type == 'csv') {
+  if (!(file.exists(fn))) {
+    if (type == 'csv') {
       data <- fread(url) 
     } else if (type == 'json') {
       data <- fromJSON(url, flatten = TRUE)
@@ -245,7 +245,7 @@ trend chart, the line-type indicates the region.
 
 # We need to merge/join state data to build ggplot maps
 us_states$region <- str_to_title(us_states$region)
-DTHD_states <- left_join(us_states, DTHD, by =c("region"="State"))
+DTHD_states <- left_join(us_states, DTHD, by = c("region" = "State"))
 
 # Display Deathrate on US Map
 ggplot(data = DTHD_states,
@@ -255,8 +255,9 @@ ggplot(data = DTHD_states,
   scale_fill_gradient(low = "white", high = "#CB454A") +
   labs(title = "Death Rates") + 
   theme_map() + 
-  labs(fill = "Death rate per 100,000 population", title = "Heart Related Deaths by State, 2000-2014") +
-  theme(plot.title = element_text(size=20, face="bold", hjust = 0.5))
+  labs(fill = "Death rate per 100,000 population",
+       title = "Heart Related Deaths by State, 2000-2014") +
+  theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5))
 
 # Display Deathrates by Year on US Map
 ggplot(data = subset(DTHD_states, Year > 1999),
@@ -267,16 +268,18 @@ ggplot(data = subset(DTHD_states, Year > 1999),
   theme_map() + 
   facet_wrap(~ Year, ncol = 4) +
     theme(legend.position = "bottom", strip.background = element_blank()) +
-    labs(fill = "Death rate per 100,000 population", title = "Heart Related Deaths by State, 2000-2014") +
-  theme(plot.title = element_text(size=20, face="bold", hjust = 0.5)) 
+    labs(fill = "Death rate per 100,000 population",
+         title = "Heart Related Deaths by State, 2000-2014") +
+  theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5)) 
 
 # Display ordered Boxplots by state so we can visual the best/worst states by Heart Death rates
 ggplot(DTHD, aes(x = reorder(State, DeathRate, median), y = DeathRate, color = Region)) + 
   geom_boxplot() +
   geom_hline(yintercept = median(DTHD$DeathRate), color = "gray60") +
   coord_flip() +
-  labs(y = "Death rate per 100,000 population", x="State", title = "Heart Related Deaths by State, 2000-2014") +
-  theme(plot.title = element_text(size=20, face="bold", hjust = 0.5))
+  labs(y = "Death rate per 100,000 population", x = "State",
+       title = "Heart Related Deaths by State, 2000-2014") +
+  theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5))
 
 # Display Deathrate density plots by state
 ggplot(DTHD, aes(x = DeathRate)) +
@@ -298,10 +301,11 @@ as a boxplot by Region would be better.
 # Add a column with Region mean DeathRate
 DTHD_states <- DTHD_states %>% 
   group_by(Region) %>% 
-  mutate(RegionMean = mean(DeathRate, na.rm=TRUE))
+  mutate(RegionMean = mean(DeathRate, na.rm = TRUE))
 
 # Display Regions on US Map
-ggplot(data = DTHD_states, mapping = aes(x = long, y = lat, group = group, fill = Region)) +
+ggplot(data = DTHD_states,
+       mapping = aes(x = long, y = lat, group = group, fill = Region)) +
   geom_polygon(color = "gray30", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
   labs(title = "Regions") + 
@@ -359,7 +363,7 @@ four regions, follows below.
 # Add a column with Division mean DeathRate
 DTHD_states <- DTHD_states %>% 
   group_by(Division) %>% 
-  mutate(DivisionMean = mean(DeathRate, na.rm=TRUE))
+  mutate(DivisionMean = mean(DeathRate, na.rm = TRUE))
 
 # Display Regions on US Map
 ggplot(data = DTHD_states,
@@ -769,7 +773,8 @@ plot(history)
 ```{r, eval=FALSE, echo=FALSE}
 
 # Plot the accuracy of the training data 
-plot(history$metrics$acc, main="Model Accuracy", xlab = "epoch", ylab="accuracy", col="blue", type="l")
+plot(history$metrics$acc, main="Model Accuracy", xlab = "epoch",
+     ylab="accuracy", col="blue", type="l")
 
 # Plot the accuracy of the validation data
 lines(history$metrics$val_acc, col="green")
