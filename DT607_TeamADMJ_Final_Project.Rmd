@@ -26,7 +26,7 @@ library(data.table)
 library(keras)
 library(rsample)
 
-# Wil be used for US Maps
+# Will be used for US Maps
 library(maps)
 us_states <- map_data("state")
 
@@ -118,7 +118,7 @@ CD2_orig <- load_cache_file(CD2_fn, CD2_url, 'csv')
 CD2 <- CD2_orig
 ```
 
-### Prepare Dataframes
+### Prepare Data Frames
 
 ```{r ETL}
 # --- CLEAN LCD DATA ---
@@ -668,8 +668,8 @@ but close enough for adding confidence.
 ## Deep Learning Model
 
 While we aren't interested in a model to predict future values, it is interesting to
-train a deep learning models to see whether it can gain further explanitory 
-value from given features thru non-linear combinations.
+train a deep learning models to see whether it can gain further explanatory 
+value from given features through non-linear combinations.
 
 ```{r, eval=FALSE, echo=FALSE}
 # Add a column with mean Division DeathRate
