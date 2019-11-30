@@ -14,15 +14,19 @@ knitr::opts_chunk$set(echo = TRUE, collapse=TRUE, message=FALSE)
 
 #  --- LOAD LIBRARIES ---
 set.seed(15)
+library(recipes)
 library(caret)
 library(rpart.plot)
 library(jsonlite)
 library(MASS)
+library(dplyr)
 library(glmnet)
 library(data.table)
 library(tidyverse)
 library(ggthemes)
-library(viridis)
+
+library(keras)
+library(rsample)
 
 # Wil be used for US Maps
 library(maps)
@@ -57,6 +61,23 @@ load_cache_file <- function(fn, url, type) {
   }
   
   return(data)
+}
+
+#' Print a side-by-side Histogram and QQPlot of Residuals
+#'
+#' @param model A model
+#' @examples
+#' residPlot(myModel)
+#' @return null
+#' @export
+residPlot <- function(model) {
+  par(mfrow = c(1, 2))
+  hist(model[[3]], freq = FALSE, breaks = "fd", main = "Residual Histogram",
+       xlab = "Residuals")
+  lines(density(model[[3]], kernel = "ep"))
+  qqnorm(model[[3]], main = "Residual Q-Q plot")
+  qqline(model[[3]])
+  par(mfrow = c(1, 1))
 }
 ```
 
@@ -190,6 +211,7 @@ The heart-diseases specific information is extracted to its own table for ease
 of analysis.
 
 # Part 3 - Exploratory data analysis
+
 ## Summary Statistics
 Summary statistics for the heart-disease data by division and region are below:
 
@@ -216,6 +238,7 @@ DTHD[, .(Mean = mean(DeathRate),
 ```
 
 ## State View
+
 A graphical view of the overall kernel-smoothed density and average rate over
 time is shown below. It is faceted by state, colored by division, and for the
 trend chart, the line-type indicates the region.
@@ -234,7 +257,8 @@ ggplot(data = DTHD_states,
   scale_fill_gradient(low = "white", high = "#CB454A") +
   labs(title = "Death Rates") + 
   theme_map() + 
-  labs(fill = "Death Rate")
+  labs(fill = "Death rate per 100,000 population", title = "Heart Related Deaths by State, 2000-2014") +
+  theme(plot.title = element_text(size=20, face="bold", hjust = 0.5))
 
 # Display Deathrates by Year on US Map
 ggplot(data = subset(DTHD_states, Year > 1999),
@@ -245,7 +269,16 @@ ggplot(data = subset(DTHD_states, Year > 1999),
   theme_map() + 
   facet_wrap(~ Year, ncol = 4) +
     theme(legend.position = "bottom", strip.background = element_blank()) +
-    labs(fill = "Death rate per 100,000 population ", title = "Heart Related Deaths by State, 2000-2014")  
+    labs(fill = "Death rate per 100,000 population", title = "Heart Related Deaths by State, 2000-2014") +
+  theme(plot.title = element_text(size=20, face="bold", hjust = 0.5)) 
+
+# Display ordered Boxplots by state so we can visual the best/worst states by Heart Death rates
+ggplot(DTHD, aes(x = reorder(State, DeathRate, median), y = DeathRate, color = Region)) + 
+  geom_boxplot() +
+  geom_hline(yintercept = median(DTHD$DeathRate), color = "gray60") +
+  coord_flip() +
+  labs(y = "Death rate per 100,000 population", x="State", title = "Heart Related Deaths by State, 2000-2014") +
+  theme(plot.title = element_text(size=20, face="bold", hjust = 0.5))
 
 # Display Deathrate density plots by state
 ggplot(DTHD, aes(x = DeathRate)) +
@@ -257,10 +290,10 @@ ggplot(DTHD, aes(x = Year, y = DeathRate)) +
 ```
 
 ## Regional View
+
 As striking as the displays may be, treating each state as its own factor would
 fall prey to having too many variables and not enough data. Looking at the data
 as a boxplot by Region would be better.
-
 
 ```{r boxPlot}
 
@@ -319,6 +352,7 @@ ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + geom_boxplot() +
 ```
 
 ## Divisional View
+
 A similar exploration of dividing the data by the nine divisions, instead of the
 four regions, follows below.
 
@@ -369,7 +403,9 @@ inter-regional difference that a model using divisions would likely perform
 better than one using solely regions.
 
 # Part 4 - Inference
+
 ## Linear Models
+
 As we are not privy to the underlying data from the NHCS, just their aggregated
 data, we are restricted in the models we may build. Furthermore, the point of
 this observational study is not to create a model of future deaths for 
@@ -381,6 +417,7 @@ with added geography will be made. If geography is a valuable indicator, the
 new model should show increased \(R^2\) and reduced error.
 
 ### Year
+
 As seen above, the relationship between `DeathRate` and `Year` is non-linear.
 One option is to add a quadratic term which will capture the curvature. Of
 course, if extended too far, the quadratic term would be ludicrous, but it may
@@ -390,18 +427,11 @@ and treat that as a factor. A more sophisticated third method would put in dummy
 variables for each year and test the cutoff that way.
 
 ```{r year1}
-residPlot <- function(model) {
-  par(mfrow = c(1, 2))
-  hist(model[[3]], freq = FALSE, breaks = "fd", main = "Residual Histogram",
-       xlab = "Residuals")
-  lines(density(model[[3]], kernel = "ep"))
-  qqnorm(model[[3]], main = "Residual Q-Q plot")
-  qqline(model[[3]])
-  par(mfrow = c(1, 1))
-}
+# Run Linear Regression using Year to predict DeathRate
 year1_lm <- lm(DeathRate ~ Year, data = DTHD)
-yr1_lm_s <- summary(year1_lm)
-yr1_lm_s
+
+(yr1_lm_s <- summary(year1_lm))
+
 residPlot(yr1_lm_s)
 ```
 
@@ -414,9 +444,11 @@ distributed, and the QQ plot, while not perfect, is not egregious.
 Next is the quadratic year model:
 
 ```{r yearquad}
+# Run Linear Regression using Year and quadratic Year Term
 year2_lm <- lm(DeathRate ~ Year + I(Year ^ 2), data = DTHD)
-yr2_lm_s <- summary(year2_lm)
-yr2_lm_s
+
+(yr2_lm_s <- summary(year2_lm))
+
 residPlot(yr2_lm_s)
 ```
 
@@ -434,6 +466,7 @@ The next step is to replace the year with cutoffs and possibly "spline" the
 results out of linear pieces.
 
 ```{r year_multi}
+# Add logical columns to help with identifying year cutoffs
 for (i in seq(min(LCD$Year), max(LCD$Year))) {
   DTHD[, paste0("Post", i) := Year > i]
 }
@@ -441,12 +474,16 @@ for (i in seq(min(LCD$Year), max(LCD$Year))) {
 yr_mult_formula <- reformulate(
   termlabels = c(paste0("Post", seq(min(LCD$Year) + 1L, max(LCD$Year) - 1L))),
   response = "DeathRate")
+
+# Run Linear Regression 
 yr_mult_lm <- lm(yr_mult_formula, data = DTHD)
+
 yr_mult_lm_final <- stepAIC(yr_mult_lm, direction = "both",
                             scope = list(upper = yr_mult_lm, lower = ~ 1),
                              scale = 0, trace = FALSE)
-yr_lmf_s <- summary(yr_mult_lm_final)
-yr_lmf_s
+
+(yr_lmf_s <- summary(yr_mult_lm_final))
+
 residPlot(yr_lmf_s)
 ```
 
@@ -465,6 +502,7 @@ As neither of the "acceptable" models show an adjusted \(R^2\) greater than
 would indicate that our hypothesis is valid.
 
 ### Regions
+
 The first step would be to add `Regions` to the "best" model using only `Year`.
 Instead, `Region` will be added to the saturated cut-off model and then the
 `stepAIC` procedure will be applied. While not explicitly looking for
@@ -478,13 +516,16 @@ considered the baseline will make the findings more relevant. The two simple
 models using region only below show this difference.
 
 ```{r lm_region}
+# Linear regression  - use Region to predict DeathRate
 region1_lm <- lm(DeathRate ~ Region, data = DTHD)
-r1_lm_s <- summary(region1_lm)
+
+(r1_lm_s <- summary(region1_lm))
+
+# Change the reference level to the West Region and rerun the Linear Regression
 DTHD$Region <- relevel(DTHD$Region, ref = "West")
 region2_lm <- lm(DeathRate ~ Region, data = DTHD)
-r2_lm_s <- summary(region2_lm)
-r1_lm_s
-r2_lm_s
+
+(r2_lm_s <- summary(region2_lm))
 ```
 
 Note that the adjusted \(R^2\) remains the same at `r r1_lm_s$adj.r.squared`,
@@ -513,6 +554,7 @@ There is also a marked improvement in the adjusted \(R^2\) of the model at
 year-only model as does the QQ-plot.
 
 ### Divisions
+
 The next step is to subdivide on divisions. For the same reason as above, the
 data will be re-leveled to consider the `Pacific` region as the base.
 
@@ -540,6 +582,7 @@ The object here is not to create the best predictive model of heart
 disease-related deaths, but to indicate if geography plays a role.
 
 ### Penalized Regression
+
 When dealing with many possible variables, as these annual dummy variables are,
 one can use the machinery of lasso. Lasso, or more properly known as penalized
 regression using L1, is a kind of regression that penalizes multiple parameters
@@ -589,6 +632,7 @@ parameters, at which point it slopes upwards. As the penalty changes and the
 saturated model is approached, the coefficient actually becomes positive.
 
 ## Tree-based method
+
 It is clear that the true relationship between `DeathRate` and the geographies,
 even when accounting for the year, is non-linear. The linear model has, however,
 shown that the geographies are relevant. We can show this with a tree-based
@@ -622,6 +666,125 @@ variable importance plots, the most important was variable 9, `Mountain`,
 followed by variables 13, 15, and 5 which are `Post2003`, `Post2005`, and
 `East South Central` respectively. Not in the exact same order as the tree,
 but close enough for adding confidence.
+
+## Deep Learning Model
+
+While we aren't interested in a model to predict future values, it is interesting to
+train a deep learning models to see whether it can gain further explanitory 
+value from given features thru non-linear combinations.
+
+```{r, eval=FALSE, echo=FALSE}
+# Add a column with mean Division DeathRate
+DTHD_engineered <- DTHD
+
+DTHD_engineered$Region <- as.character(DTHD_engineered$Region)
+DTHD_engineered$Division <- as.character(DTHD_engineered$Division)
+
+dm <- DTHD_engineered %>% 
+  group_by(Division) %>% 
+  mutate(DivisionMean = mean(DeathRate, na.rm=TRUE))
+
+DTHD_engineered$DivisionMean <- dm$DivisionMean
+
+dthd.training <- DTHD_engineered %>%
+  dplyr::select(State, Region, Division, Year, Population, DivisionMean, DeathRate) %>%
+  filter(Year < 2017)
+
+dthd.test <- DTHD_engineered %>%
+  dplyr::select(State, Region, Division, Year, Population, DivisionMean, DeathRate) %>%
+  filter(Year == 2017)
+
+# Create recipe
+rec_obj <- recipe(DeathRate ~ ., data = dthd.training) %>%
+  step_log(Population) %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>%
+#  step_center(all_predictors(), -all_outcomes()) %>%
+#  step_scale(all_predictors(), -all_outcomes()) %>%
+  prep(data = dthd.training)
+
+# Predictors
+train_data <- bake(rec_obj, new_data = dthd.training) %>% dplyr::select(-DeathRate)
+test_data  <- bake(rec_obj, new_data = dthd.test) %>% dplyr::select(-DeathRate)
+
+# Response variables for training and testing sets
+train_labels <- dthd.training %>% dplyr::select(DeathRate, -Division) 
+test_labels  <- dthd.test %>% dplyr::select(DeathRate, -Division)
+
+```
+
+## Define the Model
+
+```{r, eval=FALSE, echo=FALSE}
+build_model <- function() {
+  model <- keras_model_sequential() %>%
+    layer_dense(units=64, activation='relu', input_shape = c(dim(train_data)[2])) %>%
+    layer_dense(units=64, activation='relu') %>%
+    layer_dense(units=1)
+  
+  model %>% compile(
+    loss      = 'mse',  # "mse"
+    optimizer = optimizer_rmsprop(), # optimizer_rmsprop(),
+    metrics   = list("mean_absolute_error") #list("mean_absolute_error")
+  )
+  
+  model
+}
+
+model <- build_model()
+
+model %>% summary()
+
+```
+
+## Train the model
+
+```{r, eval=FALSE, echo=FALSE}
+# Display training progress by printing a single dot for each completed epoch.
+print_dot_callback <- callback_lambda(
+  on_epoch_end = function(epoch, logs) {
+    if (epoch %% 80 == 0) cat("\n")
+    cat(".")
+  }
+)    
+
+# The patience parameter is the amount of epochs to check for improvement.
+early_stop <- callback_early_stopping(monitor = "val_loss", patience = 20)
+
+epochs <- 10
+
+# Fit the model 
+history <- model %>% fit(
+    train_data, 
+    train_labels, 
+    epochs = epochs, 
+    batch_size = 5, 
+    validation_split = 0.2,
+    callbacks = list(print_dot_callback)
+)
+
+# Plot the history
+plot(history)
+```
+
+## Evaluate Model 
+
+```{r, eval=FALSE, echo=FALSE}
+
+# Plot the accuracy of the training data 
+plot(history$metrics$acc, main="Model Accuracy", xlab = "epoch", ylab="accuracy", col="blue", type="l")
+
+# Plot the accuracy of the validation data
+lines(history$metrics$val_acc, col="green")
+
+# Add Legend
+legend("bottomright", c("train","test"), col=c("blue", "green"), lty=c(1,1))
+
+# Evaluate on test data and labels
+score <- model %>% evaluate(iris.test, iris.testLabels, batch_size = 128)
+
+# Print the score
+print(score)
+```
 
 # Part 5 - Conclusion
 There is a statistically significant relationship between geographic location in
