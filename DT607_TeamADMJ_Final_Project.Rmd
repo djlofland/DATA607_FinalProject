@@ -256,7 +256,7 @@ ggplot(data = DTHD_states,
   labs(title = "Death Rates") + 
   theme_map() + 
   labs(fill = "Death rate per 100,000 population",
-       title = "Heart Related Deaths by State, 2000-2014") +
+       title = "Heart Related Deaths by State, 2000-2017") +
   theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5))
 
 # Display Deathrates by Year on US Map
@@ -269,7 +269,7 @@ ggplot(data = subset(DTHD_states, Year > 1999),
   facet_wrap(~ Year, ncol = 4) +
     theme(legend.position = "bottom", strip.background = element_blank()) +
     labs(fill = "Death rate per 100,000 population",
-         title = "Heart Related Deaths by State, 2000-2014") +
+         title = "Heart Related Deaths by State, 2000-2017") +
   theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5)) 
 
 # Display ordered Boxplots by state to visualize best/worst states by DeathRate
@@ -279,7 +279,7 @@ ggplot(DTHD, aes(x = reorder(State, DeathRate, median),
   geom_hline(yintercept = median(DTHD$DeathRate), color = "gray60") +
   coord_flip() +
   labs(y = "Death rate per 100,000 population", x = "State",
-       title = "Heart Related Deaths by State, 2000-2014") +
+       title = "Heart Related Deaths by State, 2000-2017") +
   theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5))
 
 # Display Deathrate density plots by state
@@ -733,9 +733,21 @@ rec_obj <- recipe(DeathRate ~ ., data = dthd.training) %>%
 train_data <- bake(rec_obj, new_data = dthd.training) %>% dplyr::select(-DeathRate)
 test_data  <- bake(rec_obj, new_data = dthd.test) %>% dplyr::select(-DeathRate)
 
+train_data <- as.matrix(train_data)
+dimnames(train_data) <- NULL
+
+test_data <- as.matrix(test_data)
+dimnames(test_data) <- NULL
+
 # Response variables for training and testing sets
 train_labels <- dthd.training %>% dplyr::select(DeathRate, -Division) 
 test_labels  <- dthd.test %>% dplyr::select(DeathRate, -Division)
+
+train_labels <- as.matrix(train_labels)
+dimnames(train_labels) <- NULL
+
+test_labels <- as.matrix(test_labels)
+dimnames(test_labels) <- NULL
 
 ```
 
@@ -744,13 +756,13 @@ test_labels  <- dthd.test %>% dplyr::select(DeathRate, -Division)
 ```{r, eval=FALSE, echo=FALSE}
 build_model <- function() {
   model <- keras_model_sequential() %>%
-    layer_dense(units=64, activation='relu', input_shape = c(dim(train_data)[2])) %>%
+    layer_dense(units=64, activation='relu', input_shape = list(ncol(train_data)) ) %>%
     layer_dense(units=64, activation='relu') %>%
     layer_dense(units=1)
   
   model %>% compile(
     loss      = 'mse',  # "mse"
-    optimizer = optimizer_rmsprop(), # optimizer_rmsprop(),
+    optimizer = optimizer_rmsprop(), # optimizer_rmsprop(),  lr = 0.002
     metrics   = list("mean_absolute_error") #list("mean_absolute_error")
   )
   
@@ -785,12 +797,16 @@ history <- model %>% fit(
     train_labels, 
     epochs = epochs, 
     batch_size = 5, 
-    validation_split = 0.2,
+    #validation_split = 0.2
     callbacks = list(print_dot_callback)
 )
 
 # Plot the history
 plot(history)
+```
+
+```{r}
+as.matrix(train_data)
 ```
 
 ## Evaluate Model 
