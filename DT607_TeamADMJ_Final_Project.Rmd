@@ -12,8 +12,10 @@ output:
 ```{r setup, message=FALSE, collapse=TRUE, warning=FALSE}
 knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, message = FALSE)
 
-#  --- LOAD LIBRARIES ---
+# --- SET RANDOM SEED FOR REPRODUCIBILITY --- 
 set.seed(15)
+
+#  --- LOAD LIBRARIES ---
 library(recipes)
 library(caret)
 library(rpart.plot)
@@ -23,12 +25,16 @@ library(tidyverse)
 library(ggthemes)
 library(glmnet)
 library(data.table)
-library(keras)
 library(rsample)
+library(corrr)
 
 # Will be used for US Maps
 library(maps)
 us_states <- map_data("state")
+
+# Will be used to build our Deep Learning model
+library(keras)
+
 
 #' Attempt to load cached data falling back to remote URL loading
 #'
@@ -61,6 +67,7 @@ load_cache_file <- function(fn, url, type) {
   return(data)
 }
 
+
 #' Print a side-by-side Histogram and QQPlot of Residuals
 #'
 #' @param model A model
@@ -77,10 +84,24 @@ residPlot <- function(model) {
   qqline(model[[3]])
   par(mfrow = c(1, 1))
 }
+
+
+#' Calcualte the R-Squared given observed and predicted data
+#'
+#' @param y     Observed values in an object that supports vector operations
+#' @param y_hat Predicted values in an object that supports vector operations
+#' @examples
+#' r_squared(test_labels, predicted_labels)
+#' @return Float between 0 and 1.0
+#' @export
+r_squared <- function(y, y_hat) {
+  return(1 - sum((y - y_hat)^2) / sum((y - mean(y))^2))
+}
+
 ```
 
-
 # Part 1 - Introduction
+
 One of the many wonderful aspects of the United States of America is its
 diversity of people and culture. Historically, outside of major port and
 immigration centers, cultures tend to be clustered geographically. This will
@@ -93,6 +114,7 @@ we will focus on heart disease.
 # Part 2 - Data
 
 ### Load raw data
+
 ```{r loadData}
 
 # --- Load LCD Data ---
@@ -166,6 +188,7 @@ head(DTHD)
 ```
 
 ## Source
+
 The investigation will be based on publicly available data on leading causes
 of death comes from the
 [National Center for Health Statistics (NHCS)](https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu).
@@ -174,6 +197,7 @@ Population data will be based on the statewide census data for both
 and [2000-2009](https://www.census.gov/data/datasets/time-series/demo/popest/intercensal-2000-2010-state.html) from the US Census Bureau.
 
 ## ETL
+
 The dataset from the CDC contains `r dim(LCD)[[1]]` observations comprising data
 from 53 locations---the 50 states, the US as a whole, and the District of
 Columbia---across 11 causes of death---the top 10 together with all---over the
@@ -211,6 +235,7 @@ of analysis.
 # Part 3 - Exploratory data analysis
 
 ## Summary Statistics
+
 Summary statistics for the heart-disease data by division and region are below:
 
 ```{r sumStat}
@@ -672,76 +697,100 @@ but close enough for adding confidence.
 
 ## Population
 
-It would be intersting to see whether the state Popultion has any direct correlation with DeathRate.  We could hypothesize that higher state p[opulations might lead to better healthcare (a positive) or greater stress (a negative).  Conversly, lower state populations might lead to better living and/or less accessible healthcare.  Let's explore whether DeathRate correlates with Population.  Since Population is a longtail, we log transofrm Population in the model.
+It would be intersting to see whether the state Popultion has any direct 
+correlation with DeathRate.  We could hypothesize that higher state 
+populations might lead to better healthcare (decrease deathrate) or greater
+stress (increase deathrate).  Conversly, lower state populations might lead
+to better living (decrease deathrate) and/or less accessible healthcare 
+(increase deathreate).  At this point we have NO way to attribute *causality*,
+but we can explore where there are *correlations* between Population and 
+DeathRate.  Since Population is a longtail, we `log` transform Population 
+in the model.
 
 ```{r pop1}
 hist(DTHD$Population)
 hist(log(DTHD$Population), breaks = 15)
 
-# Run Linear Regression using Year to predict DeathRate
+# Run Linear Regression using Population to predict DeathRate
 pop_lm <- lm(DeathRate ~ log(Population), data = DTHD)
 
 (pop_lm <- summary(pop_lm))
 
 residPlot(pop_lm)
 
-library(corrr)
+# Calcuate correlation between Population and DeathRate
 DTHD %>% 
   dplyr::select(Population, DeathRate) %>% 
   correlate(method = "spearman", diagonal = 1) %>%
   focus(Population)
 ```
 
-Interestingly, while there is a significant positive relationship between `log(Population)` and the `DeathRate` within each State, it only explains a very small percent of the variability with an adjusted \(R^2\) of `r pop_lm$adj.r.squared`.  The residuals are essentially normally distributed, and the QQ plot, is quite straight.
+Interestingly, while there is a significant positive relationship between 
+`log(Population)` and the `DeathRate` within each State, it only explains 
+a very small percent of the variability with an adjusted \(R^2\) 
+of `r pop_lm$adj.r.squared`.  The residuals are essentially normally distributed,
+and the QQ plot, is quite straight.
 
 ## Deep Learning Model
 
 While we aren't interested in a model to predict future values, it is interesting to
 train a deep learning models to see whether it can gain further explanatory 
-value from given features through non-linear combinations.
+value from given features through non-linear combinations. For this evaluation, 
+we hold out the 2017 year data and train the model with the years, 2000-2016.  
+We will include State, Region, Division, Year and Population as features and 
+predict the outcome, DeathRate. Note that there is huge colinearity between
+State, Division and Region but Deep Learning models don't care.  We include 
+these additional features as surrounding geos may provide predictive value for a 
+given state.  In future analysis, we could explore dropping out Region and/or 
+Division.
 
-```{r, eval=FALSE, echo=FALSE}
+### Prepare Data
+
+```{r keras_data}
 # Add a column with mean Division DeathRate
 DTHD_engineered <- DTHD
 
+# Factors didn't work for recipes below - columns ned to be charater vectors
 DTHD_engineered$Region <- as.character(DTHD_engineered$Region)
 DTHD_engineered$Division <- as.character(DTHD_engineered$Division)
 
+# Calcualte the mean DeathRate per Division and add this as a column
 dm <- DTHD_engineered %>% 
   group_by(Division) %>% 
   mutate(DivisionMean = mean(DeathRate, na.rm=TRUE))
 
 DTHD_engineered$DivisionMean <- dm$DivisionMean
 
+# separate out training data
 dthd.training <- DTHD_engineered %>%
-  dplyr::select(State, Region, Division, Year, Population, DivisionMean, DeathRate) %>%
+  dplyr::select(State, Region, Division, Year, Population, DeathRate) %>%
   filter(Year < 2017)
 
+# separeate out test data
 dthd.test <- DTHD_engineered %>%
-  dplyr::select(State, Region, Division, Year, Population, DivisionMean, DeathRate) %>%
+  dplyr::select(State, Region, Division, Year, Population, DeathRate) %>%
   filter(Year == 2017)
 
-# Create recipe
+# Create recipe for transforming columns
 rec_obj <- recipe(DeathRate ~ ., data = dthd.training) %>%
   step_log(Population) %>%
   step_dummy(all_nominal(), -all_outcomes()) %>%
-#  step_center(all_predictors(), -all_outcomes()) %>%
-#  step_scale(all_predictors(), -all_outcomes()) %>%
   prep(data = dthd.training)
 
-# Predictors
+# Apply recipe to prepare data for input into training
 train_data <- bake(rec_obj, new_data = dthd.training) %>% dplyr::select(-DeathRate)
 test_data  <- bake(rec_obj, new_data = dthd.test) %>% dplyr::select(-DeathRate)
 
+# Response variables for training and testing sets
+train_labels <- dthd.training %>% dplyr::select(DeathRate, -Division) 
+test_labels  <- dthd.test %>% dplyr::select(DeathRate, -Division)
+
+# convert everything to matrices
 train_data <- as.matrix(train_data)
 dimnames(train_data) <- NULL
 
 test_data <- as.matrix(test_data)
 dimnames(test_data) <- NULL
-
-# Response variables for training and testing sets
-train_labels <- dthd.training %>% dplyr::select(DeathRate, -Division) 
-test_labels  <- dthd.test %>% dplyr::select(DeathRate, -Division)
 
 train_labels <- as.matrix(train_labels)
 dimnames(train_labels) <- NULL
@@ -751,83 +800,138 @@ dimnames(test_labels) <- NULL
 
 ```
 
-## Define the Model
 
-```{r, eval=FALSE, echo=FALSE}
-build_model <- function() {
+### Define the Model
+
+```{r keras_model}
+
+#' Wrapper to build a Keras Model
+#' 
+#' @param input_nodes   integer - number of input features
+#' @param output_nodes  integer - number of output nodes
+#' @param FLAGS         list - hyperparameter options
+#' @return model
+#' @export
+build_model <- function(input_nodes, output_nodes, FLAGS) {
+  # Build our Keras Model
   model <- keras_model_sequential() %>%
-    layer_dense(units=64, activation='relu', input_shape = list(ncol(train_data)) ) %>%
-    layer_dense(units=64, activation='relu') %>%
-    layer_dense(units=1)
+    layer_dense(units = FLAGS$neuron1, activation = 'relu', input_shape = list(input_nodes) ) %>%
+    layer_dense(units = FLAGS$neuron2, activation = 'relu') %>%
+    layer_dense(units = output_nodes)
   
+  # compile the model for use
   model %>% compile(
-    loss      = 'mse',  # "mse"
+    loss      = 'mae',  # "mse"
     optimizer = optimizer_rmsprop(), # optimizer_rmsprop(),  lr = 0.002
     metrics   = list("mean_absolute_error") #list("mean_absolute_error")
   )
   
-  model
+  return(model)
 }
 
-model <- build_model()
-
-model %>% summary()
-
-```
-
-## Train the model
-
-```{r, eval=FALSE, echo=FALSE}
 # Display training progress by printing a single dot for each completed epoch.
 print_dot_callback <- callback_lambda(
   on_epoch_end = function(epoch, logs) {
     if (epoch %% 80 == 0) cat("\n")
     cat(".")
   }
-)    
+) 
+
 
 # The patience parameter is the amount of epochs to check for improvement.
 early_stop <- callback_early_stopping(monitor = "val_loss", patience = 20)
 
-epochs <- 10
 
-# Fit the model 
-history <- model %>% fit(
-    train_data, 
-    train_labels, 
-    epochs = epochs, 
-    batch_size = 5, 
-    #validation_split = 0.2
-    callbacks = list(print_dot_callback)
-)
-
-# Plot the history
-plot(history)
 ```
 
-```{r}
-as.matrix(train_data)
+### Train the model 
+
+Note that we did a grid search of hyperparameters to optimize the model.  Also, R-Squared is not normally a metric we calcualte with models.  Usually we score models with Mean Absolute Error (MAE), RMSE, or even log versions of these.  We added a function to caluclate R-Squared for the model so we could directly compare performance with previous models in this project.
+
+```{r keras_train}
+
+# Store off the scores from each hypertuing loop for evaluation
+scores <- list()
+iteration <- 1
+
+#for (neuron1 in c(128, 256, 512)) {
+#  for (neuron2 in c(32, 64, 128, 256)) {
+#    for (lr in c(0.0001, 0.001, 0.01)) {
+      
+#      FLAGS <- list('neuron1'=neuron1, 'neuron2'=neuron2, 'lr'=lr)
+
+      # These were the optimal hyperparameters we tested
+      FLAGS <- list('neuron1' = 256, 'neuron2' = 32, 'lr' = 0.001)
+
+      # Build the model with provided parameters
+      model <- build_model(ncol(train_data), 1, FLAGS)
+      
+      # Fit the model 
+      history <- model %>% fit(
+          train_data, 
+          train_labels, 
+          epochs = 500, 
+          batch_size = 20, 
+          validation_split = 0.2,
+          verbose = 0,
+          callbacks = list(print_dot_callback)
+      )
+
+      # Evaluate on test data and labels
+      score <- model %>% evaluate(test_data, test_labels, batch_size = 128)
+      
+      # Calcualte R squared for both the training and test data so we can compare with other models
+      train_r2 <- r_squared(train_labels, model %>% predict(train_data))
+      test_r2 <- r_squared(test_labels, model %>% predict(test_data))
+      
+      scores[[iteration]] <- list("n1" = FLAGS$neuron1, 
+                                  "n2" = FLAGS$neuron2, 
+                                  "lr" = FLAGS$lr, 
+                                  "score" = score, 
+                                  "trn_r2" = train_r2, 
+                                  "test_r2" = test_r2)
+      #print(scores[[iteration]])
+      
+      iteration <- iteration + 1
+#    }
+#  }
+#}
+
 ```
 
-## Evaluate Model 
+Adjusting hyperparameters lead to models with R-squared from a low of 0.3 to 
+a high of ~`r mean(scores[[1]]$trn_r2, scores[[1]]$test_r2)`.  The optimal 
+result of hypertuning led to a model with one hidden layers with 256 hidden 
+nodes and a second hidden layer with 32 hidden nodes.  We found a learning 
+rate of 0.001 to be optimal.  Note that with more time, we could have explored 
+additinal hidden layers, dropout layers, etc. to further refine refine.  
+Our R-squared on the training data was **`r scores[[1]]$trn_r2`** and on 
+the holdout test data, **`r scores[[1]]$test_r2`**.  When training models, 
+there is variability.  In general we expect the training scores to be higher 
+as a model memorizes and overfits to the training data.  In this case, 
+the hold out was very close and slightly higher suggesting we did not 
+overfit and the model is still generalizing.  Since our training data 
+was 2000-2016 and our holdout test data was 2017, we suspect the model 
+started picking up on trends over time and was able to predict the following
+year with better accuracy.  We could confirm this by retraining with 2000-2015
+and seeing how well it predict 2016.  We would suspect that as we drop back 
+one year at a time, the model will capture less of the timeseries aspect and
+perform worse.  Since this was timeseries data we did *NOT* shuffle the data ...
+we wanted the model to pick up on trends within the data.
 
-```{r, eval=FALSE, echo=FALSE}
+### Evaluate Model 
+
+```{r keras_eval}
 
 # Plot the accuracy of the training data 
-plot(history$metrics$acc, main="Model Accuracy", xlab = "epoch",
-     ylab="accuracy", col="blue", type="l")
-
-# Plot the accuracy of the validation data
-lines(history$metrics$val_acc, col="green")
-
-# Add Legend
-legend("bottomright", c("train","test"), col=c("blue", "green"), lty=c(1,1))
+plot(history, metrics = "mean_absolute_error", smooth = FALSE) 
 
 # Evaluate on test data and labels
-score <- model %>% evaluate(iris.test, iris.testLabels, batch_size = 128)
+(score <- model %>% evaluate(test_data, test_labels, batch_size = 128))
 
-# Print the score
-print(score)
+# Calcualte R squared for both the training and test data so we can compare with other models
+r_squared(train_labels, model %>% predict(train_data))
+r_squared(test_labels, model %>% predict(test_data))
 ```
 
 # Part 5 - Conclusion
