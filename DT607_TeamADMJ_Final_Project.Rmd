@@ -272,8 +272,9 @@ ggplot(data = subset(DTHD_states, Year > 1999),
          title = "Heart Related Deaths by State, 2000-2014") +
   theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5)) 
 
-# Display ordered Boxplots by state so we can visual the best/worst states by Heart Death rates
-ggplot(DTHD, aes(x = reorder(State, DeathRate, median), y = DeathRate, color = Region)) + 
+# Display ordered Boxplots by state to visualize best/worst states by DeathRate
+ggplot(DTHD, aes(x = reorder(State, DeathRate, median),
+                 y = DeathRate, color = Region)) + 
   geom_boxplot() +
   geom_hline(yintercept = median(DTHD$DeathRate), color = "gray60") +
   coord_flip() +
@@ -285,7 +286,7 @@ ggplot(DTHD, aes(x = reorder(State, DeathRate, median), y = DeathRate, color = R
 ggplot(DTHD, aes(x = DeathRate)) +
   stat_density(aes(fill = Division), bw = "nrd0") + facet_wrap(~State)
 
-# Display Deathrate density plots by Division of US
+# Display Deathrate over time by state
 ggplot(DTHD, aes(x = Year, y = DeathRate)) +
   geom_path(aes(color = Division, linetype = Region)) + facet_wrap(~State)
 ```
@@ -338,7 +339,7 @@ over time as well.
 
 ```{r rateOverTime}
 ggplot(DTHD, aes(x = Year, y = DeathRate, color = Region, group = Region)) +
-  stat_summary()
+  stat_summary(fun.data = "mean_se")
 ```
 
 The rates all follow the same pattern, decreasing until about 2010 and then
@@ -388,9 +389,9 @@ ggplot(data = DTHD_states,
 ggplot(DTHD, aes(x = Division, y = DeathRate, color = Division)) +
   geom_boxplot() + coord_flip()
 
-# Density plot
+# DeathRate over time
 ggplot(DTHD, aes(x = Year, y = DeathRate, color = Division, group = Division)) +
-  stat_smooth(se = FALSE, aes(lty = Region)) +
+  stat_smooth(method = "loess", se = FALSE, aes(lty = Region)) +
   scale_color_brewer(type = 'qual', palette = 'Set1')
 ```
 
