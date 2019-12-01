@@ -667,6 +667,30 @@ followed by variables 13, 15, and 5 which are `Post2003`, `Post2005`, and
 `East South Central` respectively. Not in the exact same order as the tree,
 but close enough for adding confidence.
 
+## Population
+
+It would be intersting to see whether the state Popultion has any direct correlation with DeathRate.  We could hypothesize that higher state p[opulations might lead to better healthcare (a positive) or greater stress (a negative).  Conversly, lower state populations might lead to better living and/or less accessible healthcare.  Let's explore whether DeathRate correlates with Population.  Since Population is a longtail, we log transofrm Population in the model.
+
+```{r pop1}
+hist(DTHD$Population)
+hist(log(DTHD$Population), breaks = 15)
+
+# Run Linear Regression using Year to predict DeathRate
+pop_lm <- lm(DeathRate ~ log(Population), data = DTHD)
+
+(pop_lm <- summary(pop_lm))
+
+residPlot(pop_lm)
+
+library(corrr)
+DTHD %>% 
+  dplyr::select(Population, DeathRate) %>% 
+  correlate(method = "spearman", diagonal = 1) %>%
+  focus(Population)
+```
+
+Interestingly, while there is a significant positive relationship between `log(Population)` and the `DeathRate` within each State, it only explains a very small percent of the variability with an adjusted \(R^2\) of `r pop_lm$adj.r.squared`.  The residuals are essentially normally distributed, and the QQ plot, is quite straight.
+
 ## Deep Learning Model
 
 While we aren't interested in a model to predict future values, it is interesting to
