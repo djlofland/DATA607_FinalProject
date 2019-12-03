@@ -1,6 +1,6 @@
 ---
 title: "DATA 607 Final Project"
-author: "Team ADMJ"
+author: "Team ADM"
 output:
   html_document:
     df_print: paged
