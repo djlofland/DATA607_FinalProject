@@ -9,6 +9,17 @@ output:
   pdf_document: default
 ---
 
+# Part 1 - Introduction
+
+One of the many wonderful aspects of the United States of America is its
+diversity of people and culture. Historically, outside of major port and
+immigration centers, cultures tend to be clustered geographically. This will
+manifest not only in genetic differences, but also in differences in diet and
+activity. A question can now be raised if there is a relationship between
+geographic location, as measured by region, division, or state, and the death
+rate (per 100,000) due to disease, possibly over time? In this research project
+we will focus on heart disease.
+
 ```{r setup, message=FALSE, collapse=TRUE, warning=FALSE}
 knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, message = FALSE)
 
@@ -101,17 +112,6 @@ r_squared <- function(y, y_hat) {
 }
 
 ```
-
-# Part 1 - Introduction
-
-One of the many wonderful aspects of the United States of America is its
-diversity of people and culture. Historically, outside of major port and
-immigration centers, cultures tend to be clustered geographically. This will
-manifest not only in genetic differences, but also in differences in diet and
-activity. A question can now be raised if there is a relationship between
-geographic location, as measured by region, division, or state, and the death
-rate (per 100,000) due to disease, possibly over time? In this research project
-we will focus on heart disease.
 
 # Part 2 - Data
 
@@ -327,12 +327,13 @@ as a boxplot by Region would be better.
 ```{r boxPlot}
 
 # Add a column with Region mean DeathRate
-DTHD_states <- DTHD_states %>% 
+DTHD_regions <- DTHD %>% 
   group_by(Region) %>% 
-  mutate(RegionMean = mean(DeathRate, na.rm = TRUE))
+  mutate(RegionMedian = median(DeathRate, na.rm = TRUE))
+DTHD_regions <- left_join(us_states, DTHD_regions, by = c("region" = "State"))
 
 # Display Regions on US Map
-ggplot(data = DTHD_states,
+ggplot(data = DTHD_regions,
        mapping = aes(x = long, y = lat, group = group, fill = Region)) +
   geom_polygon(color = "gray30", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
@@ -341,8 +342,8 @@ ggplot(data = DTHD_states,
   labs(fill = "Regions")
 
 # Display Mean Deathrate for each Region on US Map
-ggplot(data = DTHD_states,
-       mapping = aes(x = long, y = lat, group = group, fill = RegionMean)) +
+ggplot(data = DTHD_regions,
+       mapping = aes(x = long, y = lat, group = group, fill = RegionMedian)) +
   geom_polygon(color = "gray30", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
   scale_fill_gradient(low = "green", high = "red") +
@@ -351,7 +352,8 @@ ggplot(data = DTHD_states,
   labs(fill = "Regional Death Rate")
 
 # Boxplot of DeathRat by Region
-ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + geom_boxplot() +
+ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + 
+  geom_boxplot() +
   coord_flip()
 ```
 
@@ -389,12 +391,13 @@ four regions, follows below.
 ```{r divisions}
 
 # Add a column with Division mean DeathRate
-DTHD_states <- DTHD_states %>% 
+DTHD_divisions <- DTHD %>% 
   group_by(Division) %>% 
-  mutate(DivisionMean = mean(DeathRate, na.rm = TRUE))
+  mutate(DivisionMedian = median(DeathRate, na.rm = TRUE))
+DTHD_divisions <- left_join(us_states, DTHD_divisions, by = c("region" = "State"))
 
 # Display Regions on US Map
-ggplot(data = DTHD_states,
+ggplot(data = DTHD_divisions,
        mapping = aes(x = long, y = lat, group = group, fill = Division)) +
   geom_polygon(color = "gray90", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
@@ -403,8 +406,8 @@ ggplot(data = DTHD_states,
   labs(fill = "Regions")
 
 # Display Mean Deathrate for each Division on US Map
-ggplot(data = DTHD_states,
-       mapping = aes(x = long, y = lat, group = group, fill = DivisionMean)) +
+ggplot(data = DTHD_divisions,
+       mapping = aes(x = long, y = lat, group = group, fill = DivisionMedian)) +
   geom_polygon(color = "gray30", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
   scale_fill_gradient(low = "green", high = "red") + 
