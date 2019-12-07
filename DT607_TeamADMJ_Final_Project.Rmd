@@ -13,7 +13,8 @@ output:
 knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, message = FALSE)
 
 # --- SET RANDOM SEED FOR REPRODUCIBILITY --- 
-set.seed(15)
+random_seed <- 15
+set.seed(random_seed)
 
 #  --- LOAD LIBRARIES ---
 library(recipes)
@@ -33,8 +34,9 @@ library(maps)
 us_states <- map_data("state")
 
 # Will be used to build our Deep Learning model
+library(tensorflow)
 library(keras)
-
+use_session_with_seed(random_seed, disable_gpu = TRUE, disable_parallel_cpu = TRUE, quiet = FALSE)
 
 #' Attempt to load cached data falling back to remote URL loading
 #'
@@ -343,7 +345,7 @@ ggplot(data = DTHD_states,
        mapping = aes(x = long, y = lat, group = group, fill = RegionMean)) +
   geom_polygon(color = "gray30", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
-  scale_fill_gradient(low = "#E2B8B2", high = "#CB454A") +
+  scale_fill_gradient(low = "green", high = "red") +
   labs(title = "Regional Death Rates") + 
   theme_map() + 
   labs(fill = "Regional Death Rate")
@@ -405,7 +407,7 @@ ggplot(data = DTHD_states,
        mapping = aes(x = long, y = lat, group = group, fill = DivisionMean)) +
   geom_polygon(color = "gray30", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
-  scale_fill_gradient(low = "#E2B8B2", high = "#CB454A") +
+  scale_fill_gradient(low = "green", high = "red") + 
   labs(title = "Regional Death Rates") + 
   theme_map() + 
   labs(fill = "Regional Death Rate")
@@ -673,7 +675,7 @@ variables indicating pre- or post- a given year---the `Year` variable may be
 trained on directly.
 
 ```{r tree, fig.width=10, fig.height=8}
-dt_m <- train(DeathRate ~ Division + Year, data = DTHD, tuneLength = 19L,
+dt_m <- caret::train(DeathRate ~ Division + Year, data = DTHD, tuneLength = 19L,
               method = 'rpart2')
 rpart.plot(dt_m$finalModel, type = 1L)
 ```
@@ -736,13 +738,14 @@ and the QQ plot, is quite straight.
 While we aren't interested in a model to predict future values, it is interesting to
 train a deep learning models to see whether it can gain further explanatory 
 value from given features through non-linear combinations. For this evaluation, 
-we hold out the 2017 year data and train the model with the years, 2000-2016.  
-We will include State, Region, Division, Year and Population as features and 
-predict the outcome, DeathRate. Note that there is huge colinearity between
-State, Division and Region but Deep Learning models don't care.  We include 
-these additional features as surrounding geos may provide predictive value for a 
-given state.  In future analysis, we could explore dropping out Region and/or 
-Division.
+we hold out the 2017 year data and train the model with the years, 2000-2016.
+
+We will include `State`, `Region`, `Division`, `Year` and `Population` as features and 
+predict the outcome, `DeathRate`. Note that there is huge colinearity between
+`State`, `Division` and `Region` which can be problematic with other ML algorithms, 
+but Deep Learning models are mostly insensitive.  We include these additional 
+features as surrounding geos may provide predictive value for a given state.  
+In future analysis, we could explore dropping out `Region` and/or `Division`.
 
 ### Prepare Data
 
@@ -813,10 +816,13 @@ dimnames(test_labels) <- NULL
 #' @return model
 #' @export
 build_model <- function(input_nodes, output_nodes, FLAGS) {
+  use_session_with_seed(random_seed, disable_gpu = TRUE, disable_parallel_cpu = TRUE, quiet = FALSE)
+
   # Build our Keras Model
   model <- keras_model_sequential() %>%
     layer_dense(units = FLAGS$neuron1, activation = 'relu', input_shape = list(input_nodes) ) %>%
     layer_dense(units = FLAGS$neuron2, activation = 'relu') %>%
+    layer_dense(units = FLAGS$neuron3, activation = 'relu') %>%
     layer_dense(units = output_nodes)
   
   # compile the model for use
@@ -846,7 +852,11 @@ early_stop <- callback_early_stopping(monitor = "val_loss", patience = 20)
 
 ### Train the model 
 
-Note that we did a grid search of hyperparameters to optimize the model.  Also, R-Squared is not normally a metric we calcualte with models.  Usually we score models with Mean Absolute Error (MAE), RMSE, or even log versions of these.  We added a function to caluclate R-Squared for the model so we could directly compare performance with previous models in this project.
+Note that we did a grid search of hyperparameters to optimize the model.  Also,
+R-Squared is not normally a metric we calculate with models.  Typically, we
+score models with Mean Absolute Error (MAE), RMSE, or even log versions of these.
+We added a function to caluclate R-Squared for the model so we could directly 
+compare performance with previous models in this project.
 
 ```{r keras_train}
 
@@ -854,70 +864,76 @@ Note that we did a grid search of hyperparameters to optimize the model.  Also, 
 scores <- list()
 iteration <- 1
 
+# Code used for hypertuning is commented out
 #for (neuron1 in c(128, 256, 512)) {
 #  for (neuron2 in c(32, 64, 128, 256)) {
-#    for (lr in c(0.0001, 0.001, 0.01)) {
+#   for (neuron3 in c(32, 64, 128, 256)) {
+#     for (lr in c(0.0001, 0.001, 0.01)) {
       
-#      FLAGS <- list('neuron1'=neuron1, 'neuron2'=neuron2, 'lr'=lr)
+#       FLAGS <- list('neuron1'=neuron1, 'neuron2'=neuron2, 'lr'=lr)
 
-      # These were the optimal hyperparameters we tested
-      FLAGS <- list('neuron1' = 256, 'neuron2' = 32, 'lr' = 0.001)
-
-      # Build the model with provided parameters
-      model <- build_model(ncol(train_data), 1, FLAGS)
-      
-      # Fit the model 
-      history <- model %>% fit(
-          train_data, 
-          train_labels, 
-          epochs = 500, 
-          batch_size = 20, 
-          validation_split = 0.2,
-          verbose = 0,
-          callbacks = list(print_dot_callback)
-      )
-
-      # Evaluate on test data and labels
-      score <- model %>% evaluate(test_data, test_labels, batch_size = 128)
-      
-      # Calcualte R squared for both the training and test data so we can compare with other models
-      train_r2 <- r_squared(train_labels, model %>% predict(train_data))
-      test_r2 <- r_squared(test_labels, model %>% predict(test_data))
-      
-      scores[[iteration]] <- list("n1" = FLAGS$neuron1, 
-                                  "n2" = FLAGS$neuron2, 
-                                  "lr" = FLAGS$lr, 
-                                  "score" = score, 
-                                  "trn_r2" = train_r2, 
-                                  "test_r2" = test_r2)
-      #print(scores[[iteration]])
-      
-      iteration <- iteration + 1
+        # These were the optimal hyperparameters we tested
+        FLAGS <- list('neuron1' = 256, 'neuron2' = 32, 'neuron3' = 32, 'lr' = 0.001)
+  
+        # Build the model with provided parameters
+        model <- build_model(ncol(train_data), 1, FLAGS)
+        
+        # Fit the model 
+        history <- model %>% fit(
+            train_data, 
+            train_labels, 
+            epochs = 500, 
+            batch_size = 20, 
+            validation_split = 0.2,
+            verbose = 0,
+            callbacks = list(print_dot_callback)
+        )
+  
+        # Evaluate on test data and labels
+        score <- model %>% evaluate(test_data, test_labels, batch_size = 128)
+        
+        # Calcualte R squared for both the training and test data so we can compare with other models
+        train_r2 <- r_squared(train_labels, model %>% predict(train_data))
+        test_r2 <- r_squared(test_labels, model %>% predict(test_data))
+        
+        scores[[iteration]] <- list("n1" = FLAGS$neuron1, 
+                                    "n2" = FLAGS$neuron2, 
+                                    "n3" = FLAGS$neuron3, 
+                                    "lr" = FLAGS$lr, 
+                                    "score" = score, 
+                                    "trn_r2" = train_r2, 
+                                    "test_r2" = test_r2)
+        #print(scores[[iteration]])
+        
+        iteration <- iteration + 1
 #    }
 #  }
 #}
 
 ```
 
-Adjusting hyperparameters lead to models with R-squared from a low of 0.3 to 
+Adjusting hyperparameters lead to models with R-squared from a low of ~0.3 to 
 a high of ~`r mean(scores[[1]]$trn_r2, scores[[1]]$test_r2)`.  The optimal 
-result of hypertuning led to a model with one hidden layers with 256 hidden 
-nodes and a second hidden layer with 32 hidden nodes.  We found a learning 
-rate of 0.001 to be optimal.  Note that with more time, we could have explored 
-additinal hidden layers, dropout layers, etc. to further refine refine.  
+result of hypertuning led to a model with three hidden layers with 
+`r FLAGS$neuron1`, `r FLAGS$neuron2`, and `r FLAGS$neuron3` hidden nodes respectively.
+We found a learning rate of `r FLAGS$lr` to be optimal.  Note that with more time, 
+we could have explored additional hidden layers, dropout layers, etc. to further 
+refine our model.  
+
 Our R-squared on the training data was **`r scores[[1]]$trn_r2`** and on 
-the holdout test data, **`r scores[[1]]$test_r2`**.  When training models, 
-there is variability.  In general we expect the training scores to be higher 
-as a model memorizes and overfits to the training data.  In this case, 
-the hold out was very close and slightly higher suggesting we did not 
-overfit and the model is still generalizing.  Since our training data 
-was 2000-2016 and our holdout test data was 2017, we suspect the model 
-started picking up on trends over time and was able to predict the following
-year with better accuracy.  We could confirm this by retraining with 2000-2015
-and seeing how well it predict 2016.  We would suspect that as we drop back 
-one year at a time, the model will capture less of the timeseries aspect and
-perform worse.  Since this was timeseries data we did *NOT* shuffle the data ...
-we wanted the model to pick up on trends within the data.
+the holdout test data, **`r scores[[1]]$test_r2`**.  
+
+When training models, there is variability.  In general we expect the training 
+scores to be slightly higher than test scores as a model memorizes and overfits 
+to the training data.  As long as the training score and test score are close, 
+we are fine and the the model is generalizing.  If the training score were 
+much higher then we might suspect overfitting, and conversely, if the test 
+score were much higher, we might suspect information leakage.  
+
+Note that we set this up as a timeseries, training on the 2000-2016 data and 
+validated with the 2017 data.  This was intentional ... we wanted the model 
+to pick up on trends within the data to better understand how to interpret 
+the `Year` feature.
 
 ### Evaluate Model 
 
