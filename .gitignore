@@ -27,5 +27,3 @@ vignettes/*.pdf
 rsconnect/
 #gitignore itself
 *.gitignore
-# html output
-*.html
