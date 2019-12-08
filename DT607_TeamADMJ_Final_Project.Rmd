@@ -733,7 +733,7 @@ DTHD %>%
 Interestingly, while there is a significant positive relationship between 
 `log(Population)` and the `DeathRate` within each State, it only explains 
 a very small percent of the variability with an adjusted \(R^2\) 
-of `r pop_lm$adj.r.squared`.  The residuals are essentially normally 
+of `r pop_lm$adj.r.squared`. The residuals are essentially normally 
 distributed, and the QQ plot, is quite straight.
 
 ## Deep Learning Model
@@ -747,7 +747,7 @@ evaluation, we hold out the 2017 year data and train the model with the years,
 We will include `State`, `Region`, `Division`, `Year` and `Population` as 
 features and predict the outcome, `DeathRate`. Note that there is huge 
 co-linearity between `State`, `Division` and `Region` which can be problematic 
-with other ML algorithms, but Deep Learning models are mostly insensitive.  We 
+with other ML algorithms, but Deep Learning models are mostly insensitive. We 
 include these additional features as surrounding geographies may provide 
 predictive value for a given state. In a future analysis, we could explore 
 dropping out `Region` or `Division`.
@@ -765,7 +765,7 @@ DTHD_engineered$Division <- as.character(DTHD_engineered$Division)
 # Calcualte the mean DeathRate per Division and add this as a column
 dm <- DTHD_engineered %>% 
   group_by(Division) %>% 
-  mutate(DivisionMean = mean(DeathRate, na.rm=TRUE))
+  mutate(DivisionMean = mean(DeathRate, na.rm = TRUE))
 
 DTHD_engineered$DivisionMean <- dm$DivisionMean
 
@@ -861,10 +861,10 @@ early_stop <- callback_early_stopping(monitor = "val_loss", patience = 20)
 
 ### Train the model 
 
-Note that we did a grid search of hyperparameters to optimize the model.  Also,
-R-Squared is not normally a metric we calculate with models.  Typically, we
-score models with Mean Absolute Error (MAE), RMSE, or even log versions of these.
-We added a function to calculate R-Squared for the model so we could directly 
+Note that we did a grid search of hyperparameters to optimize the model. Also,
+R-Squared is not normally a metric we calculate with models. Typically, we score
+models with Mean Absolute Error (MAE), RMSE, or even log versions of these. We
+added a function to calculate R-Squared for the model so we could directly
 compare performance with previous models in this project.
 
 ```{r keras_train}
@@ -926,25 +926,25 @@ iteration <- 1
 ```
 
 Adjusting hyperparameters lead to models with R-squared from a low of ~0.3 to 
-a high of ~`r mean(scores[[1]]$trn_r2, scores[[1]]$test_r2)`.  The optimal 
+a high of ~`r mean(scores[[1]]$trn_r2, scores[[1]]$test_r2)`. The optimal 
 result of hypertuning led to a model with three hidden layers with 
 `r FLAGS$neuron1`, `r FLAGS$neuron2`, and `r FLAGS$neuron3` hidden nodes 
-respectively. We found a learning rate of `r FLAGS$lr` to be optimal.  Note that 
+respectively. We found a learning rate of `r FLAGS$lr` to be optimal. Note that 
 with more time, we could have explored additional hidden layers, dropout layers, 
-etc. to further refine our model.  
+etc. to further refine our model. 
 
 Our R-squared on the training data was **`r scores[[1]]$trn_r2`** and on 
-the holdout test data, **`r scores[[1]]$test_r2`**.  
+the holdout test data, **`r scores[[1]]$test_r2`**. 
 
-When training models, there is variability.  In general we expect the training 
+When training models, there is variability. In general we expect the training 
 scores to be slightly higher than test scores as a model memorizes and overfits 
-to the training data.  As long as the training score and test score are close, 
-we are fine and the the model is generalizing.  If the training score were 
+to the training data. As long as the training score and test score are close, 
+we are fine and the the model is generalizing. If the training score were 
 much higher then we might suspect overfitting, and conversely, if the test 
-score were much higher, we might suspect information leakage.  
+score were much higher, we might suspect information leakage.
 
 Note that we set this up as a time series, training on the 2000-2016 data and 
-validated with the 2017 data.  This was intentional ... we wanted the model 
+validated with the 2017 data. This was intentional---we wanted the model 
 to pick up on trends within the data to better understand how to interpret 
 the `Year` feature.
 
@@ -953,30 +953,30 @@ the `Year` feature.
 ```{r keras_eval}
 
 # Plot the accuracy of the training data 
-plot(history, metrics = "mean_absolute_error", smooth = FALSE) 
+plot(history, metrics = "mean_absolute_error", smooth = FALSE)
 
 # Evaluate on test data and labels
-(score <- model %>% evaluate(test_data, test_labels, batch_size = 128))
+score <- model %>% evaluate(test_data, test_labels, batch_size = 128)
 
 # Calcualte R squared for both the training and test data so 
 # we can compare with other models
-(train_r2 <- r_squared(train_labels, model %>% predict(train_data)))
-(test_r2 <- r_squared(test_labels, model %>% predict(test_data)))
+train_r2 <- r_squared(train_labels, model %>% predict(train_data))
+test_r2 <- r_squared(test_labels, model %>% predict(test_data))
 ```
 
 The Deep Learning Keras model shows that 
 **~`r floor((train_r2 + test_r2) / 2 * 100)`%** 
 of the model variability can be explained by geographic location, `Population`, 
-`Year` and various interactions between them.  This is an improvement over 
-simpler models that are not able to tease out interactions.  We could go back 
+`Year` and various interactions between them. This is an improvement over 
+simpler models that are not able to tease out interactions. We could go back 
 and manually add interaction terms to the simple models along with generating 
 additional features to try and capture complexity, but Deep Learning is often 
-able to discover these patterns without extra work.  However, this new model 
+able to discover these patterns without extra work. However, this new model 
 is a black box so if we wanted to understand those interactions in the hope 
-of finding actionable insights, we might need to do further analysis.  The 
+of finding actionable insights, we might need to do further analysis. The 
 simple models offer more direct interpretability which makes them easier to 
-understand and possibly infer (in the case of cardiac health outcomes) policy 
-options or steps for further research.   
+understand and possibly infer, in the case of cardiac health outcomes, policy 
+options or steps for further research.  
 
 # Part 5 - Conclusion
 There is a statistically significant relationship between geographic location in
