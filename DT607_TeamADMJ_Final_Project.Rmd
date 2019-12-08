@@ -733,23 +733,24 @@ DTHD %>%
 Interestingly, while there is a significant positive relationship between 
 `log(Population)` and the `DeathRate` within each State, it only explains 
 a very small percent of the variability with an adjusted \(R^2\) 
-of `r pop_lm$adj.r.squared`.  The residuals are essentially normally distributed,
-and the QQ plot, is quite straight.
+of `r pop_lm$adj.r.squared`.  The residuals are essentially normally 
+distributed, and the QQ plot, is quite straight.
 
 ## Deep Learning Model
 
-While we aren't interested in a model to predict future values, it is interesting to
-train a deep learning models to see whether it can gain further explanatory 
-value from given features through non-linear combinations. For this evaluation, 
-we hold out the 2017 year data and train the model with the years, 2000-2016.
+While we aren't interested in a model to predict future values, it is 
+interesting to train a deep learning models to see whether it can gain further 
+explanatory value from given features through non-linear combinations. For this 
+evaluation, we hold out the 2017 year data and train the model with the years, 
+2000-2016.
 
-We will include `State`, `Region`, `Division`, `Year` and `Population` as features and 
-predict the outcome, `DeathRate`. Note that there is huge co-linearity between
-`State`, `Division` and `Region` which can be problematic with other ML algorithms, 
-but Deep Learning models are mostly insensitive.  We include these additional 
-features as surrounding geographies may provide predictive value for a given
-state. In a future analysis, we could explore dropping out `Region` or
-`Division`.
+We will include `State`, `Region`, `Division`, `Year` and `Population` as 
+features and predict the outcome, `DeathRate`. Note that there is huge 
+co-linearity between `State`, `Division` and `Region` which can be problematic 
+with other ML algorithms, but Deep Learning models are mostly insensitive.  We 
+include these additional features as surrounding geographies may provide 
+predictive value for a given state. In a future analysis, we could explore 
+dropping out `Region` or `Division`.
 
 ### Prepare Data
 
@@ -785,8 +786,10 @@ rec_obj <- recipe(DeathRate ~ ., data = dthd.training) %>%
   prep(data = dthd.training)
 
 # Apply recipe to prepare data for input into training
-train_data <- bake(rec_obj, new_data = dthd.training) %>% dplyr::select(-DeathRate)
-test_data  <- bake(rec_obj, new_data = dthd.test) %>% dplyr::select(-DeathRate)
+train_data <- bake(rec_obj, new_data = dthd.training) %>% 
+  dplyr::select(-DeathRate)
+test_data  <- bake(rec_obj, new_data = dthd.test) %>% 
+  dplyr::select(-DeathRate)
 
 # Response variables for training and testing sets
 train_labels <- dthd.training %>% dplyr::select(DeathRate, -Division) 
@@ -820,11 +823,13 @@ dimnames(test_labels) <- NULL
 #' @return model
 #' @export
 build_model <- function(input_nodes, output_nodes, FLAGS) {
-  use_session_with_seed(random_seed, disable_gpu = TRUE, disable_parallel_cpu = TRUE, quiet = FALSE)
+  use_session_with_seed(random_seed, disable_gpu = TRUE, 
+                        disable_parallel_cpu = TRUE, quiet = FALSE)
 
   # Build our Keras Model
   model <- keras_model_sequential() %>%
-    layer_dense(units = FLAGS$neuron1, activation = 'relu', input_shape = list(input_nodes) ) %>%
+    layer_dense(units = FLAGS$neuron1, activation = 'relu', 
+                input_shape = list(input_nodes) ) %>%
     layer_dense(units = FLAGS$neuron2, activation = 'relu') %>%
     layer_dense(units = FLAGS$neuron3, activation = 'relu') %>%
     layer_dense(units = output_nodes)
@@ -877,7 +882,10 @@ iteration <- 1
 #       FLAGS <- list('neuron1'=neuron1, 'neuron2'=neuron2, 'lr'=lr)
 
         # These were the optimal hyperparameters we tested
-        FLAGS <- list('neuron1' = 256, 'neuron2' = 32, 'neuron3' = 32, 'lr' = 0.001)
+        FLAGS <- list('neuron1' = 256, 
+                      'neuron2' = 32, 
+                      'neuron3' = 32, 
+                      'lr' = 0.001)
   
         # Build the model with provided parameters
         model <- build_model(ncol(train_data), 1, FLAGS)
@@ -896,7 +904,8 @@ iteration <- 1
         # Evaluate on test data and labels
         score <- model %>% evaluate(test_data, test_labels, batch_size = 128)
         
-        # Calcualte R squared for both the training and test data so we can compare with other models
+        # Calcualte R squared for both the training and test data so 
+        # we can compare with other models
         train_r2 <- r_squared(train_labels, model %>% predict(train_data))
         test_r2 <- r_squared(test_labels, model %>% predict(test_data))
         
@@ -919,10 +928,10 @@ iteration <- 1
 Adjusting hyperparameters lead to models with R-squared from a low of ~0.3 to 
 a high of ~`r mean(scores[[1]]$trn_r2, scores[[1]]$test_r2)`.  The optimal 
 result of hypertuning led to a model with three hidden layers with 
-`r FLAGS$neuron1`, `r FLAGS$neuron2`, and `r FLAGS$neuron3` hidden nodes respectively.
-We found a learning rate of `r FLAGS$lr` to be optimal.  Note that with more time, 
-we could have explored additional hidden layers, dropout layers, etc. to further 
-refine our model.  
+`r FLAGS$neuron1`, `r FLAGS$neuron2`, and `r FLAGS$neuron3` hidden nodes 
+respectively. We found a learning rate of `r FLAGS$lr` to be optimal.  Note that 
+with more time, we could have explored additional hidden layers, dropout layers, 
+etc. to further refine our model.  
 
 Our R-squared on the training data was **`r scores[[1]]$trn_r2`** and on 
 the holdout test data, **`r scores[[1]]$test_r2`**.  
@@ -949,10 +958,25 @@ plot(history, metrics = "mean_absolute_error", smooth = FALSE)
 # Evaluate on test data and labels
 (score <- model %>% evaluate(test_data, test_labels, batch_size = 128))
 
-# Calcualte R squared for both the training and test data so we can compare with other models
-r_squared(train_labels, model %>% predict(train_data))
-r_squared(test_labels, model %>% predict(test_data))
+# Calcualte R squared for both the training and test data so 
+# we can compare with other models
+(train_r2 <- r_squared(train_labels, model %>% predict(train_data)))
+(test_r2 <- r_squared(test_labels, model %>% predict(test_data)))
 ```
+
+The Deep Learning Keras model shows that 
+**~`r floor((train_r2 + test_r2) / 2 * 100)`%** 
+of the model variability can be explained by geographic location, `Population`, 
+`Year` and various interactions between them.  This is an improvement over 
+simpler models that are not able to tease out interactions.  We could go back 
+and manually add interaction terms to the simple models along with generating 
+additional features to try and capture complexity, but Deep Learning is often 
+able to discover these patterns without extra work.  However, this new model 
+is a black box so if we wanted to understand those interactions in the hope 
+of finding actionable insights, we might need to do further analysis.  The 
+simple models offer more direct interpretability which makes them easier to 
+understand and possibly infer (in the case of cardiac health outcomes) policy 
+options or steps for further research.   
 
 # Part 5 - Conclusion
 There is a statistically significant relationship between geographic location in
