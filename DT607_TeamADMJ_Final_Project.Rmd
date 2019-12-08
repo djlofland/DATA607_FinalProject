@@ -702,14 +702,14 @@ but close enough for adding confidence.
 
 ## Population
 
-It would be intersting to see whether the state Popultion has any direct 
-correlation with DeathRate.  We could hypothesize that higher state 
+It would be interesting to see whether the state population has any direct 
+correlation with DeathRate. We could hypothesize that higher state 
 populations might lead to better healthcare (decrease deathrate) or greater
-stress (increase deathrate).  Conversly, lower state populations might lead
+stress (increase deathrate). Conversely, lower state populations might lead
 to better living (decrease deathrate) and/or less accessible healthcare 
-(increase deathreate).  At this point we have NO way to attribute *causality*,
+(increase deathrate). At this point we have NO way to attribute *causality*,
 but we can explore where there are *correlations* between Population and 
-DeathRate.  Since Population is a longtail, we `log` transform Population 
+DeathRate. Since the population has a long tail, we `log` transform Population 
 in the model.
 
 ```{r pop1}
@@ -744,11 +744,12 @@ value from given features through non-linear combinations. For this evaluation,
 we hold out the 2017 year data and train the model with the years, 2000-2016.
 
 We will include `State`, `Region`, `Division`, `Year` and `Population` as features and 
-predict the outcome, `DeathRate`. Note that there is huge colinearity between
+predict the outcome, `DeathRate`. Note that there is huge co-linearity between
 `State`, `Division` and `Region` which can be problematic with other ML algorithms, 
 but Deep Learning models are mostly insensitive.  We include these additional 
-features as surrounding geos may provide predictive value for a given state.  
-In future analysis, we could explore dropping out `Region` and/or `Division`.
+features as surrounding geographies may provide predictive value for a given
+state. In a future analysis, we could explore dropping out `Region` or
+`Division`.
 
 ### Prepare Data
 
@@ -858,7 +859,7 @@ early_stop <- callback_early_stopping(monitor = "val_loss", patience = 20)
 Note that we did a grid search of hyperparameters to optimize the model.  Also,
 R-Squared is not normally a metric we calculate with models.  Typically, we
 score models with Mean Absolute Error (MAE), RMSE, or even log versions of these.
-We added a function to caluclate R-Squared for the model so we could directly 
+We added a function to calculate R-Squared for the model so we could directly 
 compare performance with previous models in this project.
 
 ```{r keras_train}
@@ -933,7 +934,7 @@ we are fine and the the model is generalizing.  If the training score were
 much higher then we might suspect overfitting, and conversely, if the test 
 score were much higher, we might suspect information leakage.  
 
-Note that we set this up as a timeseries, training on the 2000-2016 data and 
+Note that we set this up as a time series, training on the 2000-2016 data and 
 validated with the 2017 data.  This was intentional ... we wanted the model 
 to pick up on trends within the data to better understand how to interpret 
 the `Year` feature.
