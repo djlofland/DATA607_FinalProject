@@ -47,7 +47,17 @@ us_states <- map_data("state")
 # Will be used to build our Deep Learning model
 library(tensorflow)
 library(keras)
-use_session_with_seed(random_seed, disable_gpu = TRUE, disable_parallel_cpu = TRUE, quiet = FALSE)
+
+# Set random seed for TensorFlow
+if(Sys.info()['sysname'] == 'Windows') {
+  # TensorFlow bug with setting random seed
+  tensorflow::tf$random$set_seed(random_seed)
+} else {
+  use_session_with_seed(random_seed, 
+                        disable_gpu = TRUE, 
+                        disable_parallel_cpu = TRUE, 
+                        quiet = FALSE)
+}
 
 #' Attempt to load cached data falling back to remote URL loading
 #'
@@ -99,7 +109,7 @@ residPlot <- function(model) {
 }
 
 
-#' Calcualte the R-Squared given observed and predicted data
+#' Calculate the R-Squared given observed and predicted data
 #'
 #' @param y     Observed values in an object that supports vector operations
 #' @param y_hat Predicted values in an object that supports vector operations
@@ -762,7 +772,7 @@ DTHD_engineered <- DTHD
 DTHD_engineered$Region <- as.character(DTHD_engineered$Region)
 DTHD_engineered$Division <- as.character(DTHD_engineered$Division)
 
-# Calcualte the mean DeathRate per Division and add this as a column
+# Calculate the mean DeathRate per Division and add this as a column
 dm <- DTHD_engineered %>% 
   group_by(Division) %>% 
   mutate(DivisionMean = mean(DeathRate, na.rm = TRUE))
@@ -823,8 +833,16 @@ dimnames(test_labels) <- NULL
 #' @return model
 #' @export
 build_model <- function(input_nodes, output_nodes, FLAGS) {
-  use_session_with_seed(random_seed, disable_gpu = TRUE, 
-                        disable_parallel_cpu = TRUE, quiet = FALSE)
+    # Set random seed for TensorFlow
+    if(Sys.info()['sysname'] == 'Windows') {
+      # TensorFlow bug with setting random seed
+      tensorflow::tf$random$set_seed(random_seed)
+    } else {
+      use_session_with_seed(random_seed, 
+                            disable_gpu = TRUE, 
+                            disable_parallel_cpu = TRUE, 
+                            quiet = FALSE)
+    }
 
   # Build our Keras Model
   model <- keras_model_sequential() %>%
@@ -904,7 +922,7 @@ iteration <- 1
         # Evaluate on test data and labels
         score <- model %>% evaluate(test_data, test_labels, batch_size = 128)
         
-        # Calcualte R squared for both the training and test data so 
+        # Calculate R squared for both the training and test data so 
         # we can compare with other models
         train_r2 <- r_squared(train_labels, model %>% predict(train_data))
         test_r2 <- r_squared(test_labels, model %>% predict(test_data))
@@ -958,7 +976,7 @@ plot(history, metrics = "mean_absolute_error", smooth = FALSE)
 # Evaluate on test data and labels
 score <- model %>% evaluate(test_data, test_labels, batch_size = 128)
 
-# Calcualte R squared for both the training and test data so 
+# Calculate R squared for both the training and test data so 
 # we can compare with other models
 train_r2 <- r_squared(train_labels, model %>% predict(train_data))
 test_r2 <- r_squared(test_labels, model %>% predict(test_data))
