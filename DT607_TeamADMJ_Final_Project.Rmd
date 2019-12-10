@@ -248,7 +248,7 @@ of analysis.
 
 ## Summary Statistics
 
-Summary statistics for the heart-disease data by division and region are below:
+Summary statistics for the heart-disease data by region and division are below:
 
 ```{r sumStat}
 options(digits = 4L)
@@ -336,7 +336,7 @@ as a boxplot by Region would be better.
 
 ```{r boxPlot}
 
-# Add a column with Region mean DeathRate
+# Add a column with Region median DeathRate
 DTHD_regions <- DTHD %>% 
   group_by(Region) %>% 
   mutate(RegionMedian = median(DeathRate, na.rm = TRUE))
@@ -351,7 +351,7 @@ ggplot(data = DTHD_regions,
   theme_map() + 
   labs(fill = "Regions")
 
-# Display Mean Deathrate for each Region on US Map
+# Display median Deathrate for each Region on US Map
 ggplot(data = DTHD_regions,
        mapping = aes(x = long, y = lat, group = group, fill = RegionMedian)) +
   geom_polygon(color = "gray30", size = 0.1) +
@@ -361,7 +361,7 @@ ggplot(data = DTHD_regions,
   theme_map() + 
   labs(fill = "Regional Death Rate")
 
-# Boxplot of DeathRat by Region
+# Boxplot of DeathRate by Region
 ggplot(DTHD, aes(x = Region, y = DeathRate, color = Region)) + 
   geom_boxplot() +
   coord_flip()
@@ -400,30 +400,30 @@ four regions, follows below.
 
 ```{r divisions}
 
-# Add a column with Division mean DeathRate
+# Add a column with Division median DeathRate
 DTHD_divisions <- DTHD %>% 
   group_by(Division) %>% 
   mutate(DivisionMedian = median(DeathRate, na.rm = TRUE))
 DTHD_divisions <- left_join(us_states, DTHD_divisions, by = c("region" = "State"))
 
-# Display Regions on US Map
+# Display Divisions on US Map
 ggplot(data = DTHD_divisions,
        mapping = aes(x = long, y = lat, group = group, fill = Division)) +
   geom_polygon(color = "gray90", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
-  labs(title = "Regions") + 
+  labs(title = "Divisions") + 
   theme_map() + 
-  labs(fill = "Regions")
+  labs(fill = "Divisions")
 
-# Display Mean Deathrate for each Division on US Map
+# Display median Deathrate for each Division on US Map
 ggplot(data = DTHD_divisions,
        mapping = aes(x = long, y = lat, group = group, fill = DivisionMedian)) +
   geom_polygon(color = "gray30", size = 0.1) +
   coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
   scale_fill_gradient(low = "green", high = "red") + 
-  labs(title = "Regional Death Rates") + 
+  labs(title = "Divisional Death Rates") + 
   theme_map() + 
-  labs(fill = "Regional Death Rate")
+  labs(fill = "Divisional Death Rate")
 
 # Boxplot 
 ggplot(DTHD, aes(x = Division, y = DeathRate, color = Division)) +
@@ -442,7 +442,7 @@ divisions follow the same path over time, with the possible exception of the
 `Eath South Central` division in the `South` region and the `Mountain` division
 of the `West` region. Nevertheless, it does not immediately prevent us from
 looking at all years simultaneously. It is also apparent that there is enough
-inter-regional difference that a model using divisions would likely perform
+intra-regional difference that a model using divisions would likely perform
 better than one using solely regions.
 
 # Part 4 - Inference
