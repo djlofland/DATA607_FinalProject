@@ -1,6 +1,7 @@
 ---
 title: "DATA 607 Final Project"
-author: "Team ADM"
+author: "Team ADM: Avraham Adler, Donny Lofland, Michael Yampol"
+date: "December 11, 2019"
 output:
   html_document:
     df_print: paged
@@ -100,11 +101,12 @@ load_cache_file <- function(fn, url, type) {
 #' @export
 residPlot <- function(model) {
   par(mfrow = c(1, 2))
-  hist(model[[3]], freq = FALSE, breaks = "fd", main = "Residual Histogram",
-       xlab = "Residuals")
-  lines(density(model[[3]], kernel = "ep"))
-  qqnorm(model[[3]], main = "Residual Q-Q plot")
-  qqline(model[[3]])
+  hist(model[["residuals"]], freq = FALSE, breaks = "fd", main = "Residual Histogram",
+       xlab = "Residuals",col="lightgreen")
+  lines(density(model[["residuals"]], kernel = "ep"),col="blue", lwd=3)
+  curve(dnorm(x,mean=mean(model[["residuals"]]), sd=sd(model[["residuals"]])), col="red", lwd=3, lty="dotted", add=T)
+  qqnorm(model[["residuals"]], main = "Residual Q-Q plot")
+  qqline(model[["residuals"]],col="red", lwd=3, lty="dotted")
   par(mfrow = c(1, 1))
 }
 
@@ -728,10 +730,9 @@ hist(log(DTHD$Population), breaks = 15)
 
 # Run Linear Regression using Population to predict DeathRate
 pop_lm <- lm(DeathRate ~ log(Population), data = DTHD)
+(pop_lm_s <- summary(pop_lm))
 
-(pop_lm <- summary(pop_lm))
-
-residPlot(pop_lm)
+residPlot(pop_lm_s)
 
 # Calcuate correlation between Population and DeathRate
 DTHD %>% 
@@ -743,8 +744,63 @@ DTHD %>%
 Interestingly, while there is a significant positive relationship between 
 `log(Population)` and the `DeathRate` within each State, it only explains 
 a very small percent of the variability with an adjusted \(R^2\) 
-of `r pop_lm$adj.r.squared`. The residuals are essentially normally 
+of `r pop_lm_s$adj.r.squared`. The residuals are essentially normally 
 distributed, and the QQ plot, is quite straight.
+
+## Model Summary
+
+```{r}
+# Build summary table of model results from various simple models
+model_list <- list(
+  yr1_lm_s,
+  yr2_lm_s,
+  yr_lmf_s,
+  r1_lm_s,
+  r2_lm_s,
+  rg_lmf_s,
+  div_lmf_s,
+  pop_lm_s
+)
+
+model_names <- c(
+  "year1_lm",
+  "year2_lm",
+  "yr_mult_lm_final",
+  "region1_lm",
+  "region2_lm",
+  "rg_mult_lm_final",
+  "div_mult_lm_final",
+  "pop_lm"
+)
+
+model_kpis <- c(
+  "r2",
+  "adjr2",
+  "sigma",
+  "Ftest",
+  "Fnumdf",
+  "Fdendf"
+)
+
+extract_kpis <- function(model_summary) {
+  return(c(r2    = model_summary$r.squared, 
+           adjr2 = model_summary$adj.r.squared, 
+           sigma = model_summary$sigma, 
+           model_summary$fstatistic))
+}
+
+results <- matrix(NA, 
+                  nrow = length(model_names), 
+                  ncol = 6, 
+                  dimnames = list(model_names, model_kpis))
+
+for (i in 1:length(model_list)) { 
+	results[i,] = extract_kpis(model_list[[i]])
+}
+
+results
+```
+
 
 ## Deep Learning Model
 
@@ -768,7 +824,7 @@ dropping out `Region` or `Division`.
 # Add a column with mean Division DeathRate
 DTHD_engineered <- DTHD
 
-# Factors didn't work for recipes below - columns ned to be charater vectors
+# Factors didn't work for recipes below - columns need to be charater vectors
 DTHD_engineered$Region <- as.character(DTHD_engineered$Region)
 DTHD_engineered$Division <- as.character(DTHD_engineered$Division)
 
@@ -784,7 +840,7 @@ dthd.training <- DTHD_engineered %>%
   dplyr::select(State, Region, Division, Year, Population, DeathRate) %>%
   filter(Year < 2017)
 
-# separeate out test data
+# separate out test data
 dthd.test <- DTHD_engineered %>%
   dplyr::select(State, Region, Division, Year, Population, DeathRate) %>%
   filter(Year == 2017)
@@ -887,7 +943,7 @@ compare performance with previous models in this project.
 
 ```{r keras_train}
 
-# Store off the scores from each hypertuing loop for evaluation
+# Store off the scores from each hypertuning loop for evaluation
 scores <- list()
 iteration <- 1
 
@@ -957,7 +1013,7 @@ the holdout test data, **`r scores[[1]]$test_r2`**.
 When training models, there is variability. In general we expect the training 
 scores to be slightly higher than test scores as a model memorizes and overfits 
 to the training data. As long as the training score and test score are close, 
-we are fine and the the model is generalizing. If the training score were 
+we are fine and the model is generalizing. If the training score were 
 much higher then we might suspect overfitting, and conversely, if the test 
 score were much higher, we might suspect information leakage.
 
